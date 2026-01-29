@@ -69,7 +69,14 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
     @property
     def is_locked(self) -> bool:
         """Return true if lock is locked."""
-        return self._device.is_locked
+        locked_status = self._device.is_locked
+        _LOGGER.debug(
+            "Lock %s (ID: %s) - is_locked property: %s",
+            self._device.name,
+            self._device.id,
+            locked_status
+        )
+        return locked_status
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
