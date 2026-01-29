@@ -1,4 +1,4 @@
-/"""The Keys integration."""
+"""The Keys integration."""
 from __future__ import annotations
 
 import logging
