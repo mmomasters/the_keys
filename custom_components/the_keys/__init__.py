@@ -85,6 +85,11 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                             # Not a transient error, log and move on
                             _LOGGER.error("Error updating device %s: %s", device.name, e)
                             break
+                
+                # Add delay between lock queries to prevent gateway contention
+                # Gateway can only process one request at a time
+                import asyncio
+                await asyncio.sleep(0.5)  # 500ms delay between locks
 
         # Return the SAME device objects, not new ones!
         return devices
