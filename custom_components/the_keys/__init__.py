@@ -1,4 +1,4 @@
-"""The Keys integration."""
+/"""The Keys integration."""
 from __future__ import annotations
 
 import logging
@@ -65,18 +65,19 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                 if code_match:
                                     error_code = int(code_match.group(1))
                         
-                        # Error code 33: timestamp too old - retry with fresh timestamp
-                        # Error code 34: unknown transient error - retry
-                        if error_code in [33, 34] and attempt < 2:
+                        # Error code 33: timestamp too old - retry once
+                        # Error code 34: unknown transient error - retry once
+                        if error_code in [33, 34] and attempt == 0:
                             _LOGGER.debug(
-                                "Transient error %s for %s (attempt %d/3), retrying...",
+                                "Transient error %s for %s (attempt %d/3), retrying once...",
                                 error_code, device.name, attempt + 1
                             )
-                            continue  # Retry immediately with new timestamp
+                            continue  # Retry once with new timestamp
                         elif error_code in [33, 34]:
-                            # All retries failed, keep last state
-                            _LOGGER.warning(
-                                "Failed to update %s after 3 attempts (error %s), keeping last state",
+                            # Lock is likely out of gateway range or offline
+                            # Keep last state without spamming retries
+                            _LOGGER.debug(
+                                "Lock %s unreachable (error %s), keeping last state",
                                 device.name, error_code
                             )
                             break
