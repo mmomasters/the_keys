@@ -18,6 +18,7 @@ Platform | Description
 -- | --
 `lock` | Allow to change and see the lock status.
 `sensor` | Show battery info.
+`button` | Buttons for unlock, calibrate, and sync operations.
 
 ## Installation
 

@@ -13,7 +13,7 @@ from the_keyspy import TheKeysApi, TheKeysLock
 
 from .const import CONF_GATEWAY_IP, DEFAULT_SCAN_INTERVAL, DOMAIN
 
-PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR, Platform.BUTTON]
 
 _LOGGER = logging.getLogger(__name__)
 
