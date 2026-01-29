@@ -4,6 +4,7 @@ import logging
 from homeassistant.components.lock import LockEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from the_keyspy import TheKeysLock
 
 from .base import TheKeysEntity
@@ -25,9 +26,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     entities = []
     for device in coordinator.data:
         if isinstance(device, TheKeysLock):
-            entities.append(TheKeysLockEntity(device))
+            entities.append(TheKeysLockEntity(coordinator, device))
 
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities, update_before_add=False)
 
     # Register custom services
     platform = entity_platform.async_get_current_platform()
@@ -45,13 +46,15 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     )
 
 
-class TheKeysLockEntity(TheKeysEntity, LockEntity):
+class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
     """TheKeys lock device implementation."""
 
-    def __init__(self, device: TheKeysLock):
+    def __init__(self, coordinator, device: TheKeysLock):
         """Init a TheKeys lock entity."""
-        super().__init__(device=device)
+        super().__init__(coordinator)
+        TheKeysEntity.__init__(self, device=device)
         self._attr_unique_id = f"{self._device.id}_lock"
+        self._device = device
 
     def lock(self, **kwargs):
         """Lock the device."""
@@ -63,44 +66,19 @@ class TheKeysLockEntity(TheKeysEntity, LockEntity):
         self._device.open()
         self._attr_is_locked = False
 
-    def update(self) -> None:
-        """Update the device."""
-        try:
-            self._device.retrieve_infos()
-            self._attr_is_locked = self._device.is_locked
-        except Exception as e:
-            # Check if it's a known transient error from the API
-            error_msg = str(e)
-            
-            # Handle known error codes from the API
-            if isinstance(e, dict):
-                error_code = e.get('code')
-                error_cause = e.get('cause', '')
-            elif hasattr(e, '__dict__') and 'code' in e.__dict__:
-                error_code = e.__dict__.get('code')
-                error_cause = e.__dict__.get('cause', '')
-            else:
-                # Try to extract error code from string representation
-                error_code = None
-                error_cause = error_msg
-            
-            # Error code 33: timestamp too old (transient issue, can be ignored)
-            # Error code 34: unknown transient error
-            if error_code in [33, 34]:
-                _LOGGER.debug(
-                    "Transient API error updating %s (code %s): %s. Lock will retry on next update.",
-                    self._device.name,
-                    error_code,
-                    error_cause
-                )
-                # Don't mark as unavailable for transient errors
-                # Just keep the last known state
-            else:
-                _LOGGER.error(
-                    "Error updating lock %s: %s",
-                    self._device.name,
-                    error_msg
-                )
+    @property
+    def is_locked(self) -> bool:
+        """Return true if lock is locked."""
+        return self._device.is_locked
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        # Find our device in the coordinator's data
+        for device in self.coordinator.data:
+            if isinstance(device, TheKeysLock) and device.id == self._device.id:
+                self._device = device
+                break
+        self.async_write_ha_state()
 
     async def async_calibrate(self) -> None:
         """Calibrate the lock."""

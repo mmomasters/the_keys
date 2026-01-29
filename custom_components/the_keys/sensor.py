@@ -2,6 +2,7 @@
 from homeassistant.components.sensor import (SensorDeviceClass, SensorEntity,
                                              SensorStateClass)
 from homeassistant.const import PERCENTAGE
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from the_keyspy import TheKeysLock
 
 from .base import TheKeysEntity
@@ -21,15 +22,17 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             if device.battery_level is not None:
                 entities.append(TheKeysLockBattery(coordinator, device))
 
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities, update_before_add=False)
 
 
-class TheKeysLockBattery(TheKeysEntity, SensorEntity):
+class TheKeysLockBattery(CoordinatorEntity, TheKeysEntity, SensorEntity):
     """TheKeys battery device implementation."""
 
     def __init__(self, coordinator, device: TheKeysLock):
         """Init a TheKeys battery entity."""
-        super().__init__(device=device)
+        super().__init__(coordinator)
+        TheKeysEntity.__init__(self, device=device)
+        self._device = device
         self._attr_unique_id = f"{self._device.id}_battery"
         self._attr_device_class = SensorDeviceClass.BATTERY
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -45,3 +48,12 @@ class TheKeysLockBattery(TheKeysEntity, SensorEntity):
     def native_value(self) -> int:
         """Return battery level."""
         return self._device.battery_level
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        # Find our device in the coordinator's data
+        for device in self.coordinator.data:
+            if isinstance(device, TheKeysLock) and device.id == self._device.id:
+                self._device = device
+                break
+        self.async_write_ha_state()
