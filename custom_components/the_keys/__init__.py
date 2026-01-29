@@ -37,6 +37,24 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
 
     async def async_update_data():
         """Refresh device data - DO NOT call get_devices again!"""
+        
+        # Check gateway status first - skip updates if gateway is synchronizing
+        if entry.data.get(CONF_GATEWAY_IP):
+            try:
+                import requests
+                gateway_host = entry.data[CONF_GATEWAY_IP]
+                gateway_url = f"http://{gateway_host}/status"
+                response = await hass.async_add_executor_job(
+                    requests.get, gateway_url, 2  # 2 second timeout
+                )
+                gateway_status = response.json()
+                if "Synchronizing" in gateway_status.get("current_status", ""):
+                    _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
+                    return devices  # Return without updating, keep last state
+            except Exception as e:
+                # If can't check gateway status, proceed anyway
+                _LOGGER.debug("Could not check gateway status: %s", e)
+        
         # Only refresh existing device objects, don't create new ones
         for device in devices:
             if isinstance(device, TheKeysLock):
