@@ -6,6 +6,7 @@
         "error": {
             "cannot_connect": "\u00c9chec de connexion",
             "invalid_phone_number": "Num\u00e9ro de t\u00e9l\u00e9phone invalide",
+            "invalid_gateway_ip": "Format d'adresse de passerelle invalide. Entrez une adresse IP, un nom d'h\u00f4te ou un nom d'h\u00f4te:port (par ex., 192.168.1.1, gateway.local, gateway.local:8080)",
             "unknown": "Unexpected error"
         },
         "step": {

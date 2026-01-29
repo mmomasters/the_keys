@@ -12,7 +12,8 @@
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "unknown": "[%key:common::config_flow::error::unknown%]",
-      "invalid_phone_number": "[%key:common::config_flow::error::invalid_phone_number%]"
+      "invalid_phone_number": "[%key:common::config_flow::error::invalid_phone_number%]",
+      "invalid_gateway_ip": "Invalid gateway address format. Enter IP address, hostname, or hostname:port (e.g., 192.168.1.1, gateway.local, gateway.local:8080)"
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import re
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import (CONF_PASSWORD, CONF_SCAN_INTERVAL,
@@ -52,10 +53,9 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         raise InvalidPhoneNumber
 
     if CONF_GATEWAY_IP in data and data[CONF_GATEWAY_IP]:
-        try:
-            ipaddress.ip_address(data[CONF_GATEWAY_IP])
-        except ValueError:
-            _LOGGER.error("Invalid IP address format for gateway")
+        gateway = data[CONF_GATEWAY_IP].strip()
+        if not _validate_gateway_address(gateway):
+            _LOGGER.error("Invalid gateway address format: %s", gateway)
             raise InvalidGatewayIP
 
     try:
@@ -73,6 +73,83 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         CONF_SCAN_INTERVAL: data[CONF_SCAN_INTERVAL],
         CONF_GATEWAY_IP: data.get(CONF_GATEWAY_IP),
     }
+
+
+def _validate_gateway_address(gateway: str) -> bool:
+    """Validate gateway address (IP, hostname, or hostname:port format).
+    
+    Accepts:
+    - IPv4 addresses (e.g., 192.168.1.1)
+    - IPv6 addresses (e.g., ::1, 2001:db8::1)
+    - Hostnames (e.g., gateway.local, example.com)
+    - Hostname with port (e.g., gateway.local:8080, example.com:443)
+    - IP addresses with port (e.g., 192.168.1.1:8080, [::1]:8080)
+    """
+    if not gateway:
+        return False
+    
+    # Check if there's a port specified
+    port = None
+    host = gateway
+    
+    # Handle IPv6 with port: [::1]:8080
+    if gateway.startswith('['):
+        match = re.match(r'^\[([^\]]+)\]:(\d+)$', gateway)
+        if match:
+            host = match.group(1)
+            port = match.group(2)
+        else:
+            # Just IPv6 without port: [::1]
+            match = re.match(r'^\[([^\]]+)\]$', gateway)
+            if match:
+                host = match.group(1)
+            else:
+                return False
+    # Handle IPv4/hostname with port: example.com:8080
+    elif ':' in gateway:
+        # Could be IPv6 without brackets or hostname:port or IPv4:port
+        # Try to parse as IPv6 first
+        try:
+            ipaddress.IPv6Address(gateway)
+            host = gateway
+            port = None
+        except ValueError:
+            # Not IPv6, try hostname:port or IPv4:port
+            parts = gateway.rsplit(':', 1)
+            if len(parts) == 2:
+                host = parts[0]
+                port = parts[1]
+    
+    # Validate port if present
+    if port is not None:
+        try:
+            port_num = int(port)
+            if port_num < 1 or port_num > 65535:
+                return False
+        except ValueError:
+            return False
+    
+    # Validate host part
+    # Try IP address first
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    
+    # Validate as hostname (RFC 1123)
+    # Hostname can contain letters, digits, hyphens, and dots
+    # Each label must start and end with alphanumeric
+    # Total length must be 1-253 characters
+    if len(host) > 253 or len(host) == 0:
+        return False
+    
+    # Hostname regex pattern
+    hostname_pattern = re.compile(
+        r'^(?!-)[a-zA-Z0-9-]{1,63}(?<!-)(\.[a-zA-Z0-9-]{1,63})*$'
+    )
+    
+    return bool(hostname_pattern.match(host))
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: config_entries.ConfigEntry) -> bool:
