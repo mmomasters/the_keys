@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.entity import EntityCategory
 from the_keyspy import TheKeysLock
 
 from .base import TheKeysEntity
@@ -44,9 +45,9 @@ class TheKeysButtonEntity(CoordinatorEntity, TheKeysEntity, ButtonEntity):
         self._device = device
         self._button_type = button_type
         self._attr_unique_id = f"{self._device.id}_{button_type}_button"
-        # Set entity_category to config to group buttons together
+        # Set entity_category to CONFIG to group buttons in settings
         # This helps with ordering in the dashboard
-        self._attr_entity_category = "config"
+        self._attr_entity_category = EntityCategory.CONFIG
 
     @property
     def name(self) -> str:
