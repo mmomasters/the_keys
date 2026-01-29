@@ -18,13 +18,20 @@ Platform | Description
 -- | --
 `lock` | Allow to change and see the lock status.
 `sensor` | Show battery info.
+`button` | Buttons for calibrate and sync operations (visible in Controls dashboard).
+
+**Buttons:**
+- **Calibrate** - Calibrate the lock mechanism
+- **Sync** - Sync lock state with the cloud
 
 **Custom Services:**
 
 Service | Description
 -- | --
-`the_keys.calibrate` | Calibrate the lock mechanism
-`the_keys.sync` | Sync lock state with the cloud
+`the_keys.calibrate` | Calibrate the lock mechanism (for automations/scripts)
+`the_keys.sync` | Sync lock state with the cloud (for automations/scripts)
+
+*Note: Both button entities (for manual use in UI) and services (for automations) are available for calibrate and sync operations.*
 
 ## Installation
 
