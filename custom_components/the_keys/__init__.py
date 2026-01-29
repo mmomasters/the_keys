@@ -29,10 +29,15 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
         entry.data[CONF_PASSWORD],
         entry.data[CONF_GATEWAY_IP] or None,
     )
+    
+    # Get devices ONCE during setup, not on every update!
+    # This prevents resetting to default values (is_locked=False, battery=0)
+    devices = await hass.async_add_executor_job(api.get_devices)
+    _LOGGER.info("Loaded %d devices from The Keys API", len(devices))
 
     async def async_update_data():
-        """Fetch data from API."""
-        devices = await hass.async_add_executor_job(api.get_devices)
+        """Refresh device data - DO NOT call get_devices again!"""
+        # Only refresh existing device objects, don't create new ones
         for device in devices:
             if isinstance(device, TheKeysLock):
                 # Log raw device data BEFORE retrieve_infos
@@ -71,6 +76,7 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                     else:
                         _LOGGER.error("Error updating device %s: %s", device.name, e)
 
+        # Return the SAME device objects, not new ones!
         return devices
 
     coordinator = DataUpdateCoordinator(
