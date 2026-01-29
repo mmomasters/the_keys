@@ -55,6 +55,10 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
         TheKeysEntity.__init__(self, device=device)
         self._attr_unique_id = f"{self._device.id}_lock"
         self._device = device
+        # State stability - prevent phantom state changes
+        self._last_reported_state = None
+        self._state_confirm_count = 0
+        self._stable_state = None
 
     def lock(self, **kwargs):
         """Lock the device."""
@@ -68,15 +72,44 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
 
     @property
     def is_locked(self) -> bool:
-        """Return true if lock is locked."""
-        locked_status = self._device.is_locked
-        _LOGGER.debug(
-            "Lock %s (ID: %s) - is_locked property: %s",
-            self._device.name,
-            self._device.id,
-            locked_status
-        )
-        return locked_status
+        """Return true if lock is locked with state stability."""
+        current_api_state = self._device.is_locked
+        
+        # State stability: require 2 consecutive same readings before changing
+        if current_api_state != self._last_reported_state:
+            # State changed from API
+            self._last_reported_state = current_api_state
+            self._state_confirm_count = 1
+            _LOGGER.debug(
+                "Lock %s (ID: %s) - API state changed to %s (needs confirmation)",
+                self._device.name,
+                self._device.id,
+                current_api_state
+            )
+        else:
+            # Same state as last reading
+            self._state_confirm_count += 1
+            
+        # Only update stable state if confirmed for 2+ readings
+        if self._state_confirm_count >= 2 or self._stable_state is None:
+            if self._stable_state != current_api_state:
+                _LOGGER.info(
+                    "Lock %s (ID: %s) - State confirmed and updated: %s → %s",
+                    self._device.name,
+                    self._device.id,
+                    "locked" if self._stable_state else "unlocked",
+                    "locked" if current_api_state else "unlocked"
+                )
+            self._stable_state = current_api_state
+        else:
+            _LOGGER.debug(
+                "Lock %s (ID: %s) - Ignoring unstable state change (count: %d/2)",
+                self._device.name,
+                self._device.id,
+                self._state_confirm_count
+            )
+        
+        return self._stable_state if self._stable_state is not None else current_api_state
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
