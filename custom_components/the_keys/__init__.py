@@ -35,8 +35,18 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
         devices = await hass.async_add_executor_job(api.get_devices)
         for device in devices:
             if isinstance(device, TheKeysLock):
+                # Log raw device data BEFORE retrieve_infos
+                _LOGGER.debug(
+                    "BEFORE retrieve_infos - Lock %s (ID: %s): is_locked=%s, battery=%s",
+                    device.name, device.id, device.is_locked, device.battery_level
+                )
                 try:
                     await hass.async_add_executor_job(device.retrieve_infos)
+                    # Log raw device data AFTER retrieve_infos
+                    _LOGGER.debug(
+                        "AFTER retrieve_infos - Lock %s (ID: %s): is_locked=%s, battery=%s",
+                        device.name, device.id, device.is_locked, device.battery_level
+                    )
                 except Exception as e:
                     # Parse error to check if it's transient
                     error_msg = str(e)
