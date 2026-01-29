@@ -69,7 +69,38 @@ class TheKeysLockEntity(TheKeysEntity, LockEntity):
             self._device.retrieve_infos()
             self._attr_is_locked = self._device.is_locked
         except Exception as e:
-            _LOGGER.error("Error updating lock: %s", e)
+            # Check if it's a known transient error from the API
+            error_msg = str(e)
+            
+            # Handle known error codes from the API
+            if isinstance(e, dict):
+                error_code = e.get('code')
+                error_cause = e.get('cause', '')
+            elif hasattr(e, '__dict__') and 'code' in e.__dict__:
+                error_code = e.__dict__.get('code')
+                error_cause = e.__dict__.get('cause', '')
+            else:
+                # Try to extract error code from string representation
+                error_code = None
+                error_cause = error_msg
+            
+            # Error code 33: timestamp too old (transient issue, can be ignored)
+            # Error code 34: unknown transient error
+            if error_code in [33, 34]:
+                _LOGGER.debug(
+                    "Transient API error updating %s (code %s): %s. Lock will retry on next update.",
+                    self._device.name,
+                    error_code,
+                    error_cause
+                )
+                # Don't mark as unavailable for transient errors
+                # Just keep the last known state
+            else:
+                _LOGGER.error(
+                    "Error updating lock %s: %s",
+                    self._device.name,
+                    error_msg
+                )
 
     async def async_calibrate(self) -> None:
         """Calibrate the lock."""
