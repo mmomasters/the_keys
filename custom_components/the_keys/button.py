@@ -45,9 +45,7 @@ class TheKeysButtonEntity(CoordinatorEntity, TheKeysEntity, ButtonEntity):
         self._device = device
         self._button_type = button_type
         self._attr_unique_id = f"{self._device.id}_{button_type}_button"
-        # Set entity_category to CONFIG to group buttons in settings
-        # This helps with ordering in the dashboard
-        self._attr_entity_category = EntityCategory.CONFIG
+        # Don't set entity_category - we want these in main Controls, not Configuration
 
     @property
     def name(self) -> str:
