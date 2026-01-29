@@ -40,41 +40,50 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
         # Only refresh existing device objects, don't create new ones
         for device in devices:
             if isinstance(device, TheKeysLock):
-                # Log raw device data BEFORE retrieve_infos
-                _LOGGER.debug(
-                    "BEFORE retrieve_infos - Lock %s (ID: %s): is_locked=%s, battery=%s",
-                    device.name, device.id, device.is_locked, device.battery_level
-                )
-                try:
-                    await hass.async_add_executor_job(device.retrieve_infos)
-                    # Log raw device data AFTER retrieve_infos
-                    _LOGGER.debug(
-                        "AFTER retrieve_infos - Lock %s (ID: %s): is_locked=%s, battery=%s",
-                        device.name, device.id, device.is_locked, device.battery_level
-                    )
-                except Exception as e:
-                    # Parse error to check if it's transient
-                    error_msg = str(e)
-                    error_code = None
-                    
-                    # Try to parse error dict from exception string
-                    if "{'status':" in error_msg or '{"status":' in error_msg:
-                        try:
-                            import ast
-                            error_dict = ast.literal_eval(error_msg)
-                            if isinstance(error_dict, dict):
-                                error_code = error_dict.get('code')
-                        except (ValueError, SyntaxError):
-                            import re
-                            code_match = re.search(r"'code':\s*(\d+)", error_msg)
-                            if code_match:
-                                error_code = int(code_match.group(1))
-                    
-                    # Error codes 33 and 34 are transient, just log at debug level
-                    if error_code in [33, 34]:
-                        _LOGGER.debug("Transient API error for %s (code %s), keeping last state", device.name, error_code)
-                    else:
-                        _LOGGER.error("Error updating device %s: %s", device.name, e)
+                # Try to retrieve lock status with retry logic for timing errors
+                success = False
+                for attempt in range(3):  # Try up to 3 times
+                    try:
+                        await hass.async_add_executor_job(device.retrieve_infos)
+                        success = True
+                        break  # Success! Exit retry loop
+                    except Exception as e:
+                        # Parse error to check if it's transient
+                        error_msg = str(e)
+                        error_code = None
+                        
+                        # Try to parse error dict from exception string
+                        if "{'status':" in error_msg or '{"status":' in error_msg:
+                            try:
+                                import ast
+                                error_dict = ast.literal_eval(error_msg)
+                                if isinstance(error_dict, dict):
+                                    error_code = error_dict.get('code')
+                            except (ValueError, SyntaxError):
+                                import re
+                                code_match = re.search(r"'code':\s*(\d+)", error_msg)
+                                if code_match:
+                                    error_code = int(code_match.group(1))
+                        
+                        # Error code 33: timestamp too old - retry with fresh timestamp
+                        # Error code 34: unknown transient error - retry
+                        if error_code in [33, 34] and attempt < 2:
+                            _LOGGER.debug(
+                                "Transient error %s for %s (attempt %d/3), retrying...",
+                                error_code, device.name, attempt + 1
+                            )
+                            continue  # Retry immediately with new timestamp
+                        elif error_code in [33, 34]:
+                            # All retries failed, keep last state
+                            _LOGGER.warning(
+                                "Failed to update %s after 3 attempts (error %s), keeping last state",
+                                device.name, error_code
+                            )
+                            break
+                        else:
+                            # Not a transient error, log and move on
+                            _LOGGER.error("Error updating device %s: %s", device.name, e)
+                            break
 
         # Return the SAME device objects, not new ones!
         return devices
