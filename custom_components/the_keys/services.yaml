@@ -1,0 +1,15 @@
+calibrate:
+  name: Calibrate lock
+  description: Calibrate The Keys lock mechanism
+  target:
+    entity:
+      domain: lock
+      integration: the_keys
+
+sync:
+  name: Sync lock
+  description: Sync The Keys lock state with the cloud
+  target:
+    entity:
+      domain: lock
+      integration: the_keys

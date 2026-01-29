@@ -18,7 +18,13 @@ Platform | Description
 -- | --
 `lock` | Allow to change and see the lock status.
 `sensor` | Show battery info.
-`button` | Buttons for unlock, calibrate, and sync operations.
+
+**Custom Services:**
+
+Service | Description
+-- | --
+`the_keys.calibrate` | Calibrate the lock mechanism
+`the_keys.sync` | Sync lock state with the cloud
 
 ## Installation
 

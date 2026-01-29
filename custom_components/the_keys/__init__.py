@@ -7,15 +7,19 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (CONF_PASSWORD, CONF_SCAN_INTERVAL,
                                  CONF_USERNAME, Platform)
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from the_keyspy import TheKeysApi, TheKeysLock
 
 from .const import CONF_GATEWAY_IP, DEFAULT_SCAN_INTERVAL, DOMAIN
 
-PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR]
 
 _LOGGER = logging.getLogger(__name__)
+
+SERVICE_CALIBRATE = "calibrate"
+SERVICE_SYNC = "sync"
 
 
 async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> DataUpdateCoordinator:
