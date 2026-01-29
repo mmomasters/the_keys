@@ -66,13 +66,21 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                     error_code = int(code_match.group(1))
                         
                         # Error code 33: timestamp too old - retry once
-                        # Error code 34: unknown transient error - retry once
-                        if error_code in [33, 34] and attempt == 0:
+                        # Error code 34: unknown transient error - retry once  
+                        # Error code 38: gateway time invalid - needs resync
+                        if error_code in [33, 34, 38] and attempt == 0:
                             _LOGGER.debug(
                                 "Transient error %s for %s (attempt %d/3), retrying once...",
                                 error_code, device.name, attempt + 1
                             )
                             continue  # Retry once with new timestamp
+                        elif error_code == 38:
+                            # Gateway time is invalid - needs synchronization
+                            _LOGGER.warning(
+                                "Gateway time invalid for %s (error 38). Run gateway sync: ./lock.py sync",
+                                device.name
+                            )
+                            break
                         elif error_code in [33, 34]:
                             # Lock is likely out of gateway range or offline
                             # Keep last state without spamming retries
