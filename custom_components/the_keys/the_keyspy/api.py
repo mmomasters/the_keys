@@ -128,19 +128,33 @@ class TheKeysApi:
             gateway = None
 
             if self._gateway_ip != '':
-                # Manual IP provided, use first gateway accessory (don't need to check if online)
+                # Manual IP provided - try to find ANY accessory (gateway or remote) to create share
                 gateway_accessoires = list(
                     filter(lambda x: x.accessoire.type == ACCESSORY_GATEWAY, serrure.accessoires))
+                
                 if gateway_accessoires:
                     # Use the first gateway accessory for share creation
                     accessoire = gateway_accessoires[0]
-                    # Create gateway with manual IP
-                    gateway = TheKeysGateway(1, self._gateway_ip)
-                    devices.append(gateway)
+                    logger.debug("Using gateway accessory %s for manual IP %s", accessoire.accessoire.id, self._gateway_ip)
                 else:
-                    # Manual IP provided but no gateway accessory found in lock config
-                    raise NoGatewayAccessoryFoundError(
-                        "No gateway accessory found for this lock. Manual IP requires at least one gateway to be configured.")
+                    # No gateway accessory, try remote accessory as fallback
+                    remote_accessoires = list(
+                        filter(lambda x: x.accessoire.type == ACCESSORY_REMOTE, serrure.accessoires))
+                    if remote_accessoires:
+                        accessoire = remote_accessoires[0]
+                        logger.debug("Using remote accessory %s for manual IP %s", accessoire.accessoire.id, self._gateway_ip)
+                    else:
+                        # No gateway or remote accessory found
+                        logger.error("Lock '%s' accessories: %s", serrure.nom, 
+                                   [(a.accessoire.id, a.accessoire.type) for a in serrure.accessoires])
+                        raise NoGatewayAccessoryFoundError(
+                            f"No suitable accessory found for lock '{serrure.nom}'. "
+                            "Please add a Remote accessory in The Keys mobile app. "
+                            "Go to your lock settings -> Manage Accessories -> Add Remote.")
+                
+                # Create gateway with manual IP
+                gateway = TheKeysGateway(1, self._gateway_ip)
+                devices.append(gateway)
 
             else:
                 # No manual IP - fetch gateway info from API and check if online
