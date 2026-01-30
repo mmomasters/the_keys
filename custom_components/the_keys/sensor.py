@@ -3,7 +3,7 @@ from homeassistant.components.sensor import (SensorDeviceClass, SensorEntity,
                                              SensorStateClass)
 from homeassistant.const import PERCENTAGE
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from the_keyspy import TheKeysLock
+from .the_keyspy import TheKeysLock
 
 from .base import TheKeysEntity
 from .const import DOMAIN

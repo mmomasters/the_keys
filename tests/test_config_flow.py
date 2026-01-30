@@ -6,7 +6,7 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.const import (CONF_PASSWORD, CONF_SCAN_INTERVAL,
                                  CONF_USERNAME)
-from the_keyspy.api import TheKeysApiError
+from custom_components.the_keys.the_keyspy.api import TheKeysApiError
 
 from custom_components.the_keys.config_flow import CannotConnect
 from custom_components.the_keys.const import DEFAULT_SCAN_INTERVAL, DOMAIN

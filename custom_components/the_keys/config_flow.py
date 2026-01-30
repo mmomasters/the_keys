@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
-from the_keyspy import TheKeysApi
+from .the_keyspy import TheKeysApi
 
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, MIN_SCAN_INTERVAL, CONF_GATEWAY_IP
 

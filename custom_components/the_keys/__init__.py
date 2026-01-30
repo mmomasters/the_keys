@@ -10,7 +10,7 @@ from homeassistant.const import (CONF_PASSWORD, CONF_SCAN_INTERVAL,
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from the_keyspy import TheKeysApi, TheKeysLock
+from .the_keyspy import TheKeysApi, TheKeysLock
 
 from .const import CONF_GATEWAY_IP, DEFAULT_SCAN_INTERVAL, DOMAIN
 

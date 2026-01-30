@@ -1,6 +1,6 @@
 """Base classes."""
 from homeassistant.helpers.entity import DeviceInfo, Entity
-from the_keyspy import TheKeysDevice
+from .the_keyspy import TheKeysDevice
 
 from .const import DOMAIN
 

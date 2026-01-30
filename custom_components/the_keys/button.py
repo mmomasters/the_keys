@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import EntityCategory
-from the_keyspy import TheKeysLock
+from .the_keyspy import TheKeysLock
 
 from .base import TheKeysEntity
 from .const import DOMAIN

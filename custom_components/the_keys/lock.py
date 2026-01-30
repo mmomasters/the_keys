@@ -5,7 +5,7 @@ from homeassistant.components.lock import LockEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from the_keyspy import TheKeysLock
+from .the_keyspy import TheKeysLock
 
 from .base import TheKeysEntity
 from .const import DOMAIN
