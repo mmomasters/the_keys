@@ -125,31 +125,13 @@ class TheKeysApi:
 
         for serrure in serrures_with_accessoires:
             accessoire = None
-            gateway = None
 
             if self._gateway_ip != '':
-                # Manual IP provided - try to find ANY accessory (gateway or remote) to create share
+                # Manual IP provided, use first gateway accessory without checking info
                 gateway_accessoires = list(
                     filter(lambda x: x.accessoire.type == ACCESSORY_GATEWAY, serrure.accessoires))
-                
                 if gateway_accessoires:
-                    # Use the first gateway accessory for share creation
                     accessoire = gateway_accessoires[0]
-                    logger.debug("Using gateway accessory %s for manual IP %s", accessoire.accessoire.id, self._gateway_ip)
-                else:
-                    # No gateway accessory, try remote accessory as fallback
-                    remote_accessoires = list(
-                        filter(lambda x: x.accessoire.type == ACCESSORY_REMOTE, serrure.accessoires))
-                    if remote_accessoires:
-                        accessoire = remote_accessoires[0]
-                        logger.debug("Using remote accessory %s for manual IP %s", accessoire.accessoire.id, self._gateway_ip)
-                    else:
-                        # No gateway or remote accessory found with manual IP
-                        # Don't raise error - let it fall through to auto-discovery below
-                        logger.warning("Lock '%s' has no suitable accessory for manual IP, will try auto-discovery", serrure.nom)
-                
-                # Create gateway with manual IP only if we found an accessory  
-                if accessoire:
                     gateway = TheKeysGateway(1, self._gateway_ip)
                     devices.append(gateway)
 
