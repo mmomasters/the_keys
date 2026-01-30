@@ -156,8 +156,8 @@ class TheKeysApi:
                 gateway = TheKeysGateway(1, self._gateway_ip)
                 devices.append(gateway)
 
-            else:
-                # No manual IP - fetch gateway info from API and check if online
+            if not accessoire:
+                # No manual IP or accessoire not found - fetch gateway info from API
                 gateway_accessoires = filter(
                     lambda x: x.accessoire.type == ACCESSORY_GATEWAY, serrure.accessoires)
 
