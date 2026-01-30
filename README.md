@@ -17,7 +17,7 @@ _Integration to integrate with [KevinBonnoron/the_keys][KevinBonnoron/the_keys].
 Platform | Description
 -- | --
 `lock` | Allow to change and see the lock status.
-`sensor` | Show battery info.
+`sensor` | Show accurate battery percentage (calibrated from real data).
 `button` | Buttons for calibrate and sync operations (visible in Controls dashboard).
 
 **Buttons:**
@@ -44,6 +44,24 @@ Service | Description
 7. In the HA UI go to "Configuration" -> "Integrations" click "+" and search for "The Keys"
 
 ## Configuration is done in the UI
+
+### Configuration Options
+
+- **Username**: Your phone number in international format (e.g., +33...)
+- **Password**: Your The Keys account password
+- **Gateway IP** (optional): Manual gateway IP/hostname if auto-discovery fails
+- **Scan Interval**: How often to poll for updates (minimum 10 seconds, default 60 seconds)
+
+### Recent Improvements
+
+**v1.2.0 (2026-01-30)**
+- ✓ **Battery Accuracy Fix**: Battery percentages now accurately reflect real values (±1% accuracy)
+  - Previous version overestimated by 5-9%
+  - Uses linear regression calibrated from real device data
+- ✓ **Gateway Rate Limiting**: Prevents timeouts and gateway overload
+  - Heavy operations (open/close/calibrate/status): 8 second delay
+  - Light operations (status/list/sync): 2 second delay
+  - Per-gateway instance rate limiting
 
 <!---->
 
