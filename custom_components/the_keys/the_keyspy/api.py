@@ -38,12 +38,22 @@ def deserialize_dataclass(cls: Type[T], data: Any) -> T:
 class TheKeysApi:
     """TheKeysApi class"""
 
-    def __init__(self, username: str, password: str, gateway_ip: str = '', base_url=BASE_URL) -> None:
+    def __init__(
+        self, 
+        username: str, 
+        password: str, 
+        gateway_ip: str = '', 
+        base_url=BASE_URL,
+        rate_limit_delay: float = 5.0,
+        rate_limit_delay_light: float = 1.0
+    ) -> None:
         self._username = username
         self._password = password
         self._gateway_ip = gateway_ip
         self._base_url = base_url
         self._access_token = None
+        self._rate_limit_delay = rate_limit_delay
+        self._rate_limit_delay_light = rate_limit_delay_light
 
     @property
     def authenticated(self):
@@ -132,7 +142,13 @@ class TheKeysApi:
                     filter(lambda x: x.accessoire.type == ACCESSORY_GATEWAY, serrure.accessoires))
                 if gateway_accessoires:
                     accessoire = gateway_accessoires[0]
-                    gateway = TheKeysGateway(1, self._gateway_ip)
+                    # Use configured rate limits
+                    gateway = TheKeysGateway(
+                        1, 
+                        self._gateway_ip, 
+                        rate_limit_delay=self._rate_limit_delay,
+                        rate_limit_delay_light=self._rate_limit_delay_light
+                    )
                     devices.append(gateway)
 
             if not accessoire:
@@ -156,7 +172,12 @@ class TheKeysApi:
                 if not gateway_ip:
                     raise NoGatewayIpFoundError("No gateway IP found.")
 
-                gateway = TheKeysGateway(gateway_accessoire.id, gateway_ip)
+                gateway = TheKeysGateway(
+                    gateway_accessoire.id,
+                    gateway_ip,
+                    rate_limit_delay=self._rate_limit_delay,
+                    rate_limit_delay_light=self._rate_limit_delay_light
+                )
                 devices.append(gateway)
 
             partages_accessoire = self.find_partage_by_lock_id(

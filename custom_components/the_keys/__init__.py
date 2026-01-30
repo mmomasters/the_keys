@@ -12,7 +12,13 @@ from homeassistant.helpers import entity_platform
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .the_keyspy import TheKeysApi, TheKeysLock
 
-from .const import CONF_GATEWAY_IP, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_GATEWAY_IP,
+    DEFAULT_SCAN_INTERVAL,
+    DEFAULT_RATE_LIMIT_DELAY,
+    DEFAULT_RATE_LIMIT_DELAY_LIGHT,
+    DOMAIN,
+)
 
 PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR, Platform.BUTTON]
 
@@ -28,6 +34,8 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
         entry.data[CONF_GATEWAY_IP] or None,
+        rate_limit_delay=DEFAULT_RATE_LIMIT_DELAY,
+        rate_limit_delay_light=DEFAULT_RATE_LIMIT_DELAY_LIGHT,
     )
     
     # Get devices ONCE during setup, not on every update!

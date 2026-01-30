@@ -33,12 +33,12 @@ class Action(Enum):
 class TheKeysGateway(TheKeysDevice):
     """Gateway device implementation"""
 
-    def __init__(self, id: int, host: str, rate_limit_delay: float = 1.0, rate_limit_delay_light: float = 0.2) -> None:
+    def __init__(self, id: int, host: str, rate_limit_delay: float = 5.0, rate_limit_delay_light: float = 1.0) -> None:
         super().__init__(id)
         self._host = host
-        # Based on benchmark results (avg response time: 0.132s):
-        # - Heavy operations (open/close/calibrate/status): 1.0s delay (default)
-        # - Light operations (sync/update): 0.2s delay for better performance
+        # Rate limiting to prevent overwhelming the gateway:
+        # - Heavy operations (open/close/calibrate/locker_status): 5.0s delay
+        # - Light operations (gateway status/list/sync/update): 1.0s delay
         self._rate_limit_delay = rate_limit_delay  # Delay for heavy operations
         self._rate_limit_delay_light = rate_limit_delay_light  # Delay for light operations
         self._last_request_time = 0
