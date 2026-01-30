@@ -103,15 +103,15 @@ class TheKeysLock(TheKeysDevice):
     @property
     def battery_level(self) -> int:
         """The battery percentage"""
-        # Adjusted formula to match real values:
-        # 3600 -> 0%, 7235 -> 45%, 8000 -> 100%
-        if self._battery <= 3600:
+        # Linear formula based on real data analysis (2026-01-30)
+        # Data points: 7783→76%, 7951→87%, 8030→91%, 8131→95%
+        # Linear regression: 0% at ~6395, 100% at ~8204
+        # Accuracy: ±1% error on all test points
+        
+        if self._battery <= 6395:
             return 0
-        elif self._battery >= 8000:
+        elif self._battery >= 8204:
             return 100
-        elif self._battery <= 7235:
-            # Between 3600 and 7235: linear interpolation
-            return int((self._battery - 3600) * 45 / (7235 - 3600))
         else:
-            # Between 7235 and 8000: linear interpolation
-            return int(45 + (self._battery - 7235) * 55 / (8000 - 7235))
+            # Linear interpolation
+            return int((self._battery - 6395) * 100 / (8204 - 6395))
