@@ -144,17 +144,14 @@ class TheKeysApi:
                         accessoire = remote_accessoires[0]
                         logger.debug("Using remote accessory %s for manual IP %s", accessoire.accessoire.id, self._gateway_ip)
                     else:
-                        # No gateway or remote accessory found
-                        logger.error("Lock '%s' accessories: %s", serrure.nom, 
-                                   [(a.accessoire.id, a.accessoire.type) for a in serrure.accessoires])
-                        raise NoGatewayAccessoryFoundError(
-                            f"No suitable accessory found for lock '{serrure.nom}'. "
-                            "Please add a Remote accessory in The Keys mobile app. "
-                            "Go to your lock settings -> Manage Accessories -> Add Remote.")
+                        # No gateway or remote accessory found with manual IP
+                        # Don't raise error - let it fall through to auto-discovery below
+                        logger.warning("Lock '%s' has no suitable accessory for manual IP, will try auto-discovery", serrure.nom)
                 
-                # Create gateway with manual IP
-                gateway = TheKeysGateway(1, self._gateway_ip)
-                devices.append(gateway)
+                # Create gateway with manual IP only if we found an accessory  
+                if accessoire:
+                    gateway = TheKeysGateway(1, self._gateway_ip)
+                    devices.append(gateway)
 
             if not accessoire:
                 # No manual IP or accessoire not found - fetch gateway info from API
