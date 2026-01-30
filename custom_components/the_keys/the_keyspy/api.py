@@ -125,18 +125,25 @@ class TheKeysApi:
 
         for serrure in serrures_with_accessoires:
             accessoire = None
+            gateway = None
 
             if self._gateway_ip != '':
-                # Manual IP provided, use first gateway accessory without checking info
+                # Manual IP provided, use first gateway accessory (don't need to check if online)
                 gateway_accessoires = list(
                     filter(lambda x: x.accessoire.type == ACCESSORY_GATEWAY, serrure.accessoires))
                 if gateway_accessoires:
+                    # Use the first gateway accessory for share creation
                     accessoire = gateway_accessoires[0]
+                    # Create gateway with manual IP
                     gateway = TheKeysGateway(1, self._gateway_ip)
                     devices.append(gateway)
+                else:
+                    # Manual IP provided but no gateway accessory found in lock config
+                    raise NoGatewayAccessoryFoundError(
+                        "No gateway accessory found for this lock. Manual IP requires at least one gateway to be configured.")
 
-            if not accessoire:
-                # No manual IP or accessoire not found, fetch gateway info from API
+            else:
+                # No manual IP - fetch gateway info from API and check if online
                 gateway_accessoires = filter(
                     lambda x: x.accessoire.type == ACCESSORY_GATEWAY, serrure.accessoires)
 
