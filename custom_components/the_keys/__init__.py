@@ -73,6 +73,34 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         await hass.async_add_executor_job(device.retrieve_infos)
                         success = True
                         break  # Success! Exit retry loop
+                    except (ConnectionError, TimeoutError, OSError) as e:
+                        # Network/connection errors - log and keep last state
+                        # These are already retried at the gateway level
+                        if "Connection refused" in str(e):
+                            _LOGGER.warning(
+                                "Gateway unreachable for device %s: Connection refused. "
+                                "Check if gateway is online and accessible.",
+                                device.name
+                            )
+                        elif "Connection reset" in str(e) or "Connection aborted" in str(e):
+                            _LOGGER.warning(
+                                "Connection to gateway lost for device %s: %s. "
+                                "Gateway may be busy or network is unstable.",
+                                device.name, str(e)
+                            )
+                        elif "timed out" in str(e).lower() or "Timeout" in str(e):
+                            _LOGGER.warning(
+                                "Gateway timeout for device %s: %s. "
+                                "Gateway may be overloaded or network is slow.",
+                                device.name, str(e)
+                            )
+                        else:
+                            _LOGGER.warning(
+                                "Network error updating device %s: %s. Keeping last state.",
+                                device.name, str(e)
+                            )
+                        break  # Don't retry - already retried at gateway level
+                        
                     except Exception as e:
                         # Parse error to check if it's transient
                         error_msg = str(e)

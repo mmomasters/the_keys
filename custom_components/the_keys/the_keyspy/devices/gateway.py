@@ -160,12 +160,44 @@ class TheKeysGateway(TheKeysDevice):
     def __http_request(self, url: str, data: Optional[dict] = None) -> Any:
         method = "post" if data else "get"
         logger.debug("%s %s", method.upper(), url)
-        try:
-            with requests.Session() as session:
-                full_url = f"http://{self._host}/{url}"
-                response = session.post(
-                    full_url, data=data) if method == "post" else session.get(full_url)
-                logger.debug("response_data: %s", response.json())
-                return response.json()
-        except ConnectionError as error:
-            raise error
+        
+        # Add timeout and retry logic for network resilience
+        timeout = 10  # 10 second timeout
+        max_retries = 3
+        retry_delay = 1  # Start with 1 second
+        
+        for attempt in range(max_retries):
+            try:
+                with requests.Session() as session:
+                    full_url = f"http://{self._host}/{url}"
+                    if method == "post":
+                        response = session.post(full_url, data=data, timeout=timeout)
+                    else:
+                        response = session.get(full_url, timeout=timeout)
+                    
+                    logger.debug("response_data: %s", response.json())
+                    return response.json()
+                    
+            except (requests.exceptions.ConnectionError, 
+                    requests.exceptions.Timeout,
+                    ConnectionResetError) as error:
+                # Network errors - retry with exponential backoff
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        "Connection error to %s (attempt %d/%d): %s - retrying in %ds...",
+                        self._host, attempt + 1, max_retries, str(error), retry_delay
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    # Final attempt failed
+                    logger.error(
+                        "Failed to connect to %s after %d attempts: %s",
+                        self._host, max_retries, str(error)
+                    )
+                    raise
+                    
+            except requests.exceptions.RequestException as error:
+                # Other request errors (don't retry these)
+                logger.error("Request error to %s: %s", self._host, str(error))
+                raise
