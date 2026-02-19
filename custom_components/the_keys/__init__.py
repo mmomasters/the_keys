@@ -119,22 +119,47 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                 if code_match:
                                     error_code = int(code_match.group(1))
                         
+                        # Error code 400: action already started - gateway is busy, wait and retry
+                        # Lock takes ~5s to physically move, so wait 6s before retrying
+                        if error_code == 400:
+                            _LOGGER.debug(
+                                "Device %s is busy (action already started, attempt %d/3), "
+                                "waiting 6s before retry...",
+                                device.name, attempt + 1
+                            )
+                            import asyncio
+                            await asyncio.sleep(6)
+                            continue  # Retry after waiting
+
+                        # Error code 38: gateway time invalid - auto-sync and retry
+                        if error_code == 38:
+                            _LOGGER.info(
+                                "Gateway time invalid for %s (error 38, attempt %d/3), "
+                                "auto-syncing gateway time...",
+                                device.name, attempt + 1
+                            )
+                            try:
+                                await hass.async_add_executor_job(device._gateway.synchronize)
+                                _LOGGER.info(
+                                    "Gateway time sync triggered for %s, retrying...",
+                                    device.name
+                                )
+                            except Exception as sync_err:
+                                _LOGGER.warning(
+                                    "Failed to auto-sync gateway time for %s: %s",
+                                    device.name, sync_err
+                                )
+                                break
+                            continue  # Retry after sync
+
                         # Error code 33: timestamp too old - retry once
-                        # Error code 34: unknown transient error - retry once  
-                        # Error code 38: gateway time invalid - needs resync
-                        if error_code in [33, 34, 38] and attempt == 0:
+                        # Error code 34: unknown transient error - retry once
+                        if error_code in [33, 34] and attempt == 0:
                             _LOGGER.debug(
                                 "Transient error %s for %s (attempt %d/3), retrying once...",
                                 error_code, device.name, attempt + 1
                             )
                             continue  # Retry once with new timestamp
-                        elif error_code == 38:
-                            # Gateway time is invalid - needs synchronization
-                            _LOGGER.warning(
-                                "Gateway time invalid for %s (error 38). Run gateway sync: ./lock.py sync",
-                                device.name
-                            )
-                            break
                         elif error_code in [33, 34]:
                             # Lock is likely out of gateway range or offline
                             # Keep last state without spamming retries

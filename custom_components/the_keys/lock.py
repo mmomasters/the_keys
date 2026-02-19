@@ -56,15 +56,25 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
         self._attr_unique_id = f"{self._device.id}_lock"
         self._device = device
 
-    def lock(self, **kwargs):
+    async def async_lock(self, **kwargs):
         """Lock the device."""
-        self._device.close()
+        await self.hass.async_add_executor_job(self._device.close)
         self._attr_is_locked = True
+        self.async_write_ha_state()
+        # Wait for the lock to physically finish moving (~5s), then force a status refresh
+        import asyncio
+        await asyncio.sleep(6)
+        await self.coordinator.async_request_refresh()
 
-    def unlock(self, **kwargs):
+    async def async_unlock(self, **kwargs):
         """Unlock the device."""
-        self._device.open()
+        await self.hass.async_add_executor_job(self._device.open)
         self._attr_is_locked = False
+        self.async_write_ha_state()
+        # Wait for the lock to physically finish moving (~5s), then force a status refresh
+        import asyncio
+        await asyncio.sleep(6)
+        await self.coordinator.async_request_refresh()
 
     @property
     def is_locked(self) -> bool:
