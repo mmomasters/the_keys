@@ -183,15 +183,16 @@ class TheKeysGateway(TheKeysDevice):
                     ConnectionResetError) as error:
                 # Network errors - retry with exponential backoff
                 if attempt < max_retries - 1:
-                    logger.warning(
+                    # Transient error, retrying - log at DEBUG to avoid log spam
+                    logger.debug(
                         "Connection error to %s (attempt %d/%d): %s - retrying in %ds...",
                         self._host, attempt + 1, max_retries, str(error), retry_delay
                     )
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                 else:
-                    # Final attempt failed
-                    logger.error(
+                    # Final attempt failed - log at WARNING so it's visible but not alarming
+                    logger.warning(
                         "Failed to connect to %s after %d attempts: %s",
                         self._host, max_retries, str(error)
                     )
