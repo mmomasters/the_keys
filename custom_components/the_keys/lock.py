@@ -1,8 +1,10 @@
 """The Keys Lock device."""
+import asyncio
 import logging
 
 from homeassistant.components.lock import LockEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .the_keyspy import TheKeysLock
@@ -58,21 +60,27 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
 
     async def async_lock(self, **kwargs):
         """Lock the device."""
-        await self.hass.async_add_executor_job(self._device.close)
+        try:
+            await self.hass.async_add_executor_job(self._device.close)
+        except Exception as err:
+            _LOGGER.error("Error locking %s: %s", self._device.name, err)
+            raise HomeAssistantError(f"Could not lock {self._device.name}: {err}") from err
         self._attr_is_locked = True
         self.async_write_ha_state()
         # Wait for the lock to physically finish moving (~5s), then force a status refresh
-        import asyncio
         await asyncio.sleep(6)
         await self.coordinator.async_request_refresh()
 
     async def async_unlock(self, **kwargs):
         """Unlock the device."""
-        await self.hass.async_add_executor_job(self._device.open)
+        try:
+            await self.hass.async_add_executor_job(self._device.open)
+        except Exception as err:
+            _LOGGER.error("Error unlocking %s: %s", self._device.name, err)
+            raise HomeAssistantError(f"Could not unlock {self._device.name}: {err}") from err
         self._attr_is_locked = False
         self.async_write_ha_state()
         # Wait for the lock to physically finish moving (~5s), then force a status refresh
-        import asyncio
         await asyncio.sleep(6)
         await self.coordinator.async_request_refresh()
 

@@ -116,23 +116,12 @@ class TheKeysGateway(TheKeysDevice):
 
     # Common actions
     def action(self, action: Action, identifier: str = "", share_code: str = "") -> Any:
-        data = {}
-        if identifier != "":
-            data["identifier"] = identifier
-
-        if share_code != "":
-            timestamp = str(int(time.time()))
-            data["ts"] = timestamp
-            data["hash"] = base64.b64encode(hmac.new(share_code.encode(
-                "ascii"), timestamp.encode("ascii"), "sha256").digest())
-
         url = "status"
         match action:
             case Action.STATUS:
                 url = "status"
             case Action.UPDATE:
                 url = "update"
-                data = {"fake": True}
             case Action.SYNCHRONIZE:
                 url = "synchronize"
             case Action.LOCKER_OPEN:
@@ -148,14 +137,46 @@ class TheKeysGateway(TheKeysDevice):
             case Action.LOCKER_UPDATE:
                 url = "locker/update"
 
-        response_data = self.__http_request(url, data)
-        if "status" not in response_data:
-            response_data["status"] = "ok"
+        max_ts_retries = 3
+        for ts_attempt in range(max_ts_retries):
+            # Build request data with a FRESH timestamp on every attempt so that
+            # a stale-timestamp error (code 33) can be resolved by retrying.
+            data = {}
+            if identifier != "":
+                data["identifier"] = identifier
 
-        if response_data["status"] == "ko":
-            raise RuntimeError(response_data)
+            if action == Action.UPDATE:
+                data = {"fake": True}
+            elif share_code != "":
+                timestamp = str(int(time.time()))
+                data["ts"] = timestamp
+                data["hash"] = base64.b64encode(hmac.new(
+                    share_code.encode("ascii"),
+                    timestamp.encode("ascii"),
+                    "sha256",
+                ).digest())
 
-        return response_data
+            response_data = self.__http_request(url, data)
+            if "status" not in response_data:
+                response_data["status"] = "ok"
+
+            if response_data["status"] == "ko":
+                error_code = response_data.get("code")
+                # Error 33: timestamp too old — regenerate and retry immediately
+                if error_code == 33 and ts_attempt < max_ts_retries - 1:
+                    logger.debug(
+                        "Timestamp rejected by gateway for %s (error 33, attempt %d/%d), "
+                        "regenerating and retrying...",
+                        url, ts_attempt + 1, max_ts_retries,
+                    )
+                    time.sleep(1)  # Brief pause before regenerating timestamp
+                    continue
+                raise RuntimeError(response_data)
+
+            return response_data
+
+        # Should not be reached, but raise if all retries exhausted
+        raise RuntimeError({"status": "ko", "code": 33, "error": "timestamp rejected after all retries"})
 
     def __http_request(self, url: str, data: Optional[dict] = None) -> Any:
         method = "post" if data else "get"
