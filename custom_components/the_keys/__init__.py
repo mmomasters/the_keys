@@ -138,19 +138,36 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                 "auto-syncing gateway time...",
                                 device.name, attempt + 1
                             )
-                            try:
-                                await hass.async_add_executor_job(device._gateway.synchronize)
-                                _LOGGER.info(
-                                    "Gateway time sync triggered for %s, retrying...",
-                                    device.name
-                                )
-                            except Exception as sync_err:
-                                _LOGGER.warning(
-                                    "Failed to auto-sync gateway time for %s: %s",
-                                    device.name, sync_err
-                                )
-                                break
-                            continue  # Retry after sync
+                            # Gateway may be busy - retry the sync itself up to 3 times
+                            import asyncio
+                            sync_ok = False
+                            for sync_attempt in range(3):
+                                try:
+                                    await hass.async_add_executor_job(device._gateway.synchronize)
+                                    sync_ok = True
+                                    _LOGGER.info(
+                                        "Gateway time sync succeeded for %s, retrying status...",
+                                        device.name
+                                    )
+                                    break
+                                except Exception as sync_err:
+                                    sync_err_msg = str(sync_err)
+                                    if sync_attempt < 2:
+                                        _LOGGER.debug(
+                                            "Gateway sync busy for %s (sync attempt %d/3): %s, "
+                                            "waiting 5s...",
+                                            device.name, sync_attempt + 1, sync_err_msg
+                                        )
+                                        await asyncio.sleep(5)
+                                    else:
+                                        _LOGGER.warning(
+                                            "Failed to auto-sync gateway time for %s after "
+                                            "3 attempts: %s",
+                                            device.name, sync_err_msg
+                                        )
+                            if not sync_ok:
+                                break  # Give up on this device this cycle
+                            continue  # Retry status after successful sync
 
                         # Error code 33: timestamp too old - retry once
                         # Error code 34: unknown transient error - retry once
