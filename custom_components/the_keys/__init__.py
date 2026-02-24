@@ -46,22 +46,37 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
     async def async_update_data():
         """Refresh device data - DO NOT call get_devices again!"""
         
-        # Check gateway status first - skip updates if gateway is synchronizing
-        if entry.data.get(CONF_GATEWAY_IP):
+        # Check gateway reachability/status before polling individual devices.
+        # If the gateway can't be reached, skip all device polls for this cycle
+        # to avoid hammering a dead host and generating per-device WARNING spam.
+        gateway_host = entry.data.get(CONF_GATEWAY_IP)
+        if not gateway_host:
+            # Auto-discovered IP: pull it from the first lock's gateway object
+            for _d in devices:
+                if isinstance(_d, TheKeysLock) and hasattr(_d, "_gateway"):
+                    gateway_host = _d._gateway._host
+                    break
+
+        if gateway_host:
             try:
                 import requests
-                gateway_host = entry.data[CONF_GATEWAY_IP]
                 gateway_url = f"http://{gateway_host}/status"
                 response = await hass.async_add_executor_job(
-                    requests.get, gateway_url, 2  # 2 second timeout
+                    lambda: requests.get(gateway_url, timeout=3)
                 )
                 gateway_status = response.json()
                 if "Synchronizing" in gateway_status.get("current_status", ""):
                     _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
                     return devices  # Return without updating, keep last state
             except Exception as e:
-                # If can't check gateway status, proceed anyway
-                _LOGGER.debug("Could not check gateway status: %s", e)
+                # Gateway is unreachable — skip all device polls this cycle.
+                # gateway.py already logs at WARNING after exhausting retries;
+                # we log once here at WARNING and bail out early.
+                _LOGGER.warning(
+                    "Gateway unreachable (%s), skipping device updates this cycle: %s",
+                    gateway_host, e,
+                )
+                return devices
         
         # Only refresh existing device objects, don't create new ones
         for device in devices:
@@ -74,31 +89,13 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         success = True
                         break  # Success! Exit retry loop
                     except (ConnectionError, TimeoutError, OSError) as e:
-                        # Network/connection errors - log and keep last state
-                        # These are already retried at the gateway level
-                        if "Connection refused" in str(e):
-                            _LOGGER.warning(
-                                "Gateway unreachable for device %s: Connection refused. "
-                                "Check if gateway is online and accessible.",
-                                device.name
-                            )
-                        elif "Connection reset" in str(e) or "Connection aborted" in str(e):
-                            _LOGGER.warning(
-                                "Connection to gateway lost for device %s: %s. "
-                                "Gateway may be busy or network is unstable.",
-                                device.name, str(e)
-                            )
-                        elif "timed out" in str(e).lower() or "Timeout" in str(e):
-                            _LOGGER.warning(
-                                "Gateway timeout for device %s: %s. "
-                                "Gateway may be overloaded or network is slow.",
-                                device.name, str(e)
-                            )
-                        else:
-                            _LOGGER.warning(
-                                "Network error updating device %s: %s. Keeping last state.",
-                                device.name, str(e)
-                            )
+                        # Network/connection errors - gateway.py already logged at WARNING
+                        # after exhausting its own retries. Log at DEBUG here to avoid
+                        # duplicate noise (the early-return check above handles gateway-down).
+                        _LOGGER.debug(
+                            "Network error updating device %s (keeping last state): %s",
+                            device.name, str(e)
+                        )
                         break  # Don't retry - already retried at gateway level
                         
                     except Exception as e:
