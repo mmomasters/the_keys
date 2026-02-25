@@ -198,28 +198,53 @@ class TheKeysGateway(TheKeysDevice):
                     
                     logger.debug("response_data: %s", response.json())
                     return response.json()
-                    
-            except (requests.exceptions.ConnectionError, 
-                    requests.exceptions.Timeout,
-                    ConnectionResetError) as error:
-                # Network errors - retry with exponential backoff
-                if attempt < max_retries - 1:
-                    # Transient error, retrying - log at DEBUG to avoid log spam
+
+            except requests.exceptions.ConnectionError as error:
+                error_str = str(error)
+                # "Connection refused" (errno 111) means the gateway is actively down.
+                # Retrying immediately is pointless — it won't recover in 1-4 seconds.
+                # Fail fast so the caller can handle it without wasting time.
+                if "Connection refused" in error_str or "Errno 111" in error_str:
                     logger.debug(
-                        "Connection error to %s (attempt %d/%d): %s - retrying in %ds...",
-                        self._host, attempt + 1, max_retries, str(error), retry_delay
-                    )
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    # Final attempt failed - log at WARNING so it's visible but not alarming
-                    logger.warning(
-                        "Failed to connect to %s after %d attempts: %s",
-                        self._host, max_retries, str(error)
+                        "Connection refused by %s for /%s — gateway is down, failing fast",
+                        self._host, url,
                     )
                     raise
-                    
+
+                # Other ConnectionError (e.g. reset, aborted) — retry with backoff
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        "Connection error to %s (attempt %d/%d): %s - retrying in %ds...",
+                        self._host, attempt + 1, max_retries, error_str, retry_delay,
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    logger.debug(
+                        "Failed to connect to %s after %d attempts: %s",
+                        self._host, max_retries, error_str,
+                    )
+                    raise
+
+            except (requests.exceptions.Timeout, ConnectionResetError) as error:
+                # Timeouts may recover — retry with exponential backoff
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        "Timeout/reset on %s (attempt %d/%d): %s - retrying in %ds...",
+                        self._host, attempt + 1, max_retries, str(error), retry_delay,
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    # Final timeout failure — log at DEBUG; __init__.py health check owns
+                    # the single WARNING per cycle when the gateway is unreachable
+                    logger.debug(
+                        "Failed to connect to %s after %d attempts: %s",
+                        self._host, max_retries, str(error),
+                    )
+                    raise
+
             except requests.exceptions.RequestException as error:
                 # Other request errors (don't retry these)
-                logger.error("Request error to %s: %s", self._host, str(error))
+                logger.debug("Request error to %s: %s", self._host, str(error))
                 raise
