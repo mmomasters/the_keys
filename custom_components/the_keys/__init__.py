@@ -43,9 +43,13 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
     devices = await hass.async_add_executor_job(api.get_devices)
     _LOGGER.info("Loaded %d devices from The Keys API", len(devices))
 
+    # Track gateway reachability to avoid repeating the same WARNING every poll cycle
+    _gateway_reachable = True
+
     async def async_update_data():
         """Refresh device data - DO NOT call get_devices again!"""
-        
+        nonlocal _gateway_reachable
+
         # Check gateway reachability/status before polling individual devices.
         # If the gateway can't be reached, skip all device polls for this cycle
         # to avoid hammering a dead host and generating per-device WARNING spam.
@@ -65,17 +69,31 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                     lambda: requests.get(gateway_url, timeout=3)
                 )
                 gateway_status = response.json()
+
+                # Gateway is reachable — log recovery if it was previously down
+                if not _gateway_reachable:
+                    _LOGGER.info("Gateway (%s) is back online, resuming device updates", gateway_host)
+                    _gateway_reachable = True
+
                 if "Synchronizing" in gateway_status.get("current_status", ""):
                     _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
                     return devices  # Return without updating, keep last state
+
             except Exception as e:
                 # Gateway is unreachable — skip all device polls this cycle.
-                # gateway.py already logs at WARNING after exhausting retries;
-                # we log once here at WARNING and bail out early.
-                _LOGGER.warning(
-                    "Gateway unreachable (%s), skipping device updates this cycle: %s",
-                    gateway_host, e,
-                )
+                # Log WARNING only on first failure; subsequent cycles log DEBUG
+                # to avoid hundreds of identical warnings during an outage.
+                if _gateway_reachable:
+                    _LOGGER.warning(
+                        "Gateway unreachable (%s), skipping device updates: %s",
+                        gateway_host, e,
+                    )
+                    _gateway_reachable = False
+                else:
+                    _LOGGER.debug(
+                        "Gateway still unreachable (%s), skipping device updates: %s",
+                        gateway_host, e,
+                    )
                 return devices
         
         # Only refresh existing device objects, don't create new ones
