@@ -83,16 +83,26 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                 # Gateway is unreachable — skip all device polls this cycle.
                 # Log WARNING only on first failure; subsequent cycles log DEBUG
                 # to avoid hundreds of identical warnings during an outage.
+                err_str = str(e)
+                if "timed out" in err_str.lower() or "ConnectTimeout" in err_str:
+                    reason = "connection timed out"
+                elif "Connection refused" in err_str or "Errno 111" in err_str:
+                    reason = "connection refused"
+                elif "Name or service not known" in err_str or "getaddrinfo" in err_str:
+                    reason = "DNS resolution failed"
+                else:
+                    reason = type(e).__name__
+
                 if _gateway_reachable:
                     _LOGGER.warning(
-                        "Gateway unreachable (%s), skipping device updates: %s",
-                        gateway_host, e,
+                        "Gateway (%s) is unreachable (%s), skipping device updates",
+                        gateway_host, reason,
                     )
                     _gateway_reachable = False
                 else:
                     _LOGGER.debug(
-                        "Gateway still unreachable (%s), skipping device updates: %s",
-                        gateway_host, e,
+                        "Gateway (%s) still unreachable (%s), skipping device updates",
+                        gateway_host, reason,
                     )
                 return devices
         
