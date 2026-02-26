@@ -144,13 +144,14 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                 if code_match:
                                     error_code = int(code_match.group(1))
                         
-                        # Error code 400: action already started - gateway is busy, wait and retry
-                        # Lock takes ~5s to physically move, so wait 6s before retrying
-                        if error_code == 400:
+                        # Error code 400: action already started / 500: busy
+                        # Gateway is temporarily occupied — wait and retry.
+                        # Lock takes ~5s to physically move, so wait 6s before retrying.
+                        if error_code in (400, 500):
                             _LOGGER.debug(
-                                "Device %s is busy (action already started, attempt %d/3), "
+                                "Device %s is busy (error %s, attempt %d/3), "
                                 "waiting 6s before retry...",
-                                device.name, attempt + 1
+                                device.name, error_code, attempt + 1
                             )
                             import asyncio
                             await asyncio.sleep(6)
