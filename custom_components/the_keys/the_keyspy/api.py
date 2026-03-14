@@ -133,8 +133,14 @@ class TheKeysApi:
             raise NoAccessoriesFoundError(
                 "No accessories found for this user.")
 
+        # Cache gateway instances by host so all locks share ONE gateway object per physical device.
+        # This ensures the rate limiter is shared across all locks on the same gateway,
+        # preventing simultaneous requests that overwhelm the hardware.
+        gateway_cache: dict[str, TheKeysGateway] = {}
+
         for serrure in serrures_with_accessoires:
             accessoire = None
+            gateway = None
 
             if self._gateway_ip != '':
                 # Manual IP provided, use first gateway accessory without checking info
@@ -142,14 +148,16 @@ class TheKeysApi:
                     filter(lambda x: x.accessoire.type == ACCESSORY_GATEWAY, serrure.accessoires))
                 if gateway_accessoires:
                     accessoire = gateway_accessoires[0]
-                    # Use configured rate limits
-                    gateway = TheKeysGateway(
-                        1, 
-                        self._gateway_ip, 
-                        rate_limit_delay=self._rate_limit_delay,
-                        rate_limit_delay_light=self._rate_limit_delay_light
-                    )
-                    devices.append(gateway)
+                    # Reuse cached gateway for this IP if already created
+                    if self._gateway_ip not in gateway_cache:
+                        gateway_cache[self._gateway_ip] = TheKeysGateway(
+                            1,
+                            self._gateway_ip,
+                            rate_limit_delay=self._rate_limit_delay,
+                            rate_limit_delay_light=self._rate_limit_delay_light,
+                        )
+                        devices.append(gateway_cache[self._gateway_ip])
+                    gateway = gateway_cache[self._gateway_ip]
 
             if not accessoire:
                 # No manual IP or accessoire not found - fetch gateway info from API
@@ -172,13 +180,16 @@ class TheKeysApi:
                 if not gateway_ip:
                     raise NoGatewayIpFoundError("No gateway IP found.")
 
-                gateway = TheKeysGateway(
-                    gateway_accessoire.id,
-                    gateway_ip,
-                    rate_limit_delay=self._rate_limit_delay,
-                    rate_limit_delay_light=self._rate_limit_delay_light
-                )
-                devices.append(gateway)
+                # Reuse cached gateway for this IP if already created
+                if gateway_ip not in gateway_cache:
+                    gateway_cache[gateway_ip] = TheKeysGateway(
+                        gateway_accessoire.id,
+                        gateway_ip,
+                        rate_limit_delay=self._rate_limit_delay,
+                        rate_limit_delay_light=self._rate_limit_delay_light,
+                    )
+                    devices.append(gateway_cache[gateway_ip])
+                gateway = gateway_cache[gateway_ip]
 
             partages_accessoire = self.find_partage_by_lock_id(
                 serrure.id).partages_accessoire

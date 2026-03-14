@@ -65,7 +65,9 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
         except Exception as err:
             _LOGGER.error("Error locking %s: %s", self._device.name, err)
             raise HomeAssistantError(f"Could not lock {self._device.name}: {err}") from err
-        self._attr_is_locked = True
+        # _device._status is already set to CLOSED by device.close(); write it immediately.
+        # Do NOT set _attr_is_locked here — it has no effect because is_locked is a property
+        # that reads _device.is_locked, and _attr_is_locked would be silently ignored.
         self.async_write_ha_state()
         # Wait for the lock to physically finish moving (~5s), then force a status refresh
         await asyncio.sleep(6)
@@ -78,7 +80,9 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
         except Exception as err:
             _LOGGER.error("Error unlocking %s: %s", self._device.name, err)
             raise HomeAssistantError(f"Could not unlock {self._device.name}: {err}") from err
-        self._attr_is_locked = False
+        # _device._status is already set to OPENED by device.open(); write it immediately.
+        # Do NOT set _attr_is_locked here — it has no effect because is_locked is a property
+        # that reads _device.is_locked, and _attr_is_locked would be silently ignored.
         self.async_write_ha_state()
         # Wait for the lock to physically finish moving (~5s), then force a status refresh
         await asyncio.sleep(6)
@@ -88,6 +92,11 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
     def is_locked(self) -> bool:
         """Return true if lock is locked."""
         return self._device.is_locked
+
+    @property
+    def is_jammed(self) -> bool:
+        """Return true if lock is jammed."""
+        return self._device.is_jammed
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""

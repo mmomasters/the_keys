@@ -196,6 +196,13 @@ class TheKeysGateway(TheKeysDevice):
                     else:
                         response = session.get(full_url, timeout=timeout)
                     
+                    # Reset the rate-limit timer AFTER the response is received so that
+                    # the delay is measured from when the gateway finished processing,
+                    # not from when the request was sent.  Heavy operations (locker_status)
+                    # can take ~3s; without this the next request would fire immediately
+                    # after the response, leaving no recovery time for the gateway.
+                    self._last_request_time = time.time()
+
                     logger.debug("response_data: %s", response.json())
                     return response.json()
 

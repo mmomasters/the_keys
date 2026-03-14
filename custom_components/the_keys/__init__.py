@@ -51,24 +51,18 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
         nonlocal _gateway_reachable
 
         # Check gateway reachability/status before polling individual devices.
-        # If the gateway can't be reached, skip all device polls for this cycle
-        # to avoid hammering a dead host and generating per-device WARNING spam.
-        gateway_host = entry.data.get(CONF_GATEWAY_IP)
-        if not gateway_host:
-            # Auto-discovered IP: pull it from the first lock's gateway object
-            for _d in devices:
-                if isinstance(_d, TheKeysLock) and hasattr(_d, "_gateway"):
-                    gateway_host = _d._gateway._host
-                    break
-
-        if gateway_host:
+        # We route this through the shared gateway object so the rate limiter
+        # coordinates this request with subsequent lock polling requests.
+        gateway_device = next(
+            (d for d in devices if isinstance(d, TheKeysLock) and hasattr(d, "_gateway")),
+            None,
+        )
+        if gateway_device:
+            gateway_host = gateway_device._gateway._host
             try:
-                import requests
-                gateway_url = f"http://{gateway_host}/status"
-                response = await hass.async_add_executor_job(
-                    lambda: requests.get(gateway_url, timeout=3)
+                gateway_status = await hass.async_add_executor_job(
+                    gateway_device._gateway.status
                 )
-                gateway_status = response.json()
 
                 # Gateway is reachable — log recovery if it was previously down
                 if not _gateway_reachable:
@@ -216,10 +210,8 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                             _LOGGER.error("Error updating device %s: %s", device.name, e)
                             break
                 
-                # Add delay between lock queries to prevent gateway contention
-                # Gateway can only process one request at a time
-                import asyncio
-                await asyncio.sleep(0.5)  # 500ms delay between locks
+                # No additional sleep needed here — the shared gateway object's
+                # rate limiter already serializes all requests to the physical device.
 
         # Return the SAME device objects, not new ones!
         return devices
