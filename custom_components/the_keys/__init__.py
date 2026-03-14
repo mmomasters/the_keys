@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+import requests
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (CONF_PASSWORD, CONF_SCAN_INTERVAL,
                                  CONF_USERNAME, Platform)
@@ -110,10 +112,13 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         await hass.async_add_executor_job(device.retrieve_infos)
                         success = True
                         break  # Success! Exit retry loop
-                    except (ConnectionError, TimeoutError, OSError) as e:
-                        # Network/connection errors - gateway.py already logged at WARNING
-                        # after exhausting its own retries. Log at DEBUG here to avoid
-                        # duplicate noise (the early-return check above handles gateway-down).
+                    except (ConnectionError, TimeoutError, OSError,
+                            requests.exceptions.RequestException) as e:
+                        # Network/connection errors (both built-in and requests-specific).
+                        # gateway.py already logged at DEBUG after exhausting its own retries.
+                        # Log at DEBUG here too to avoid duplicate noise — the gateway
+                        # health check at the top of this function owns the single WARNING
+                        # per cycle when the gateway is unreachable.
                         _LOGGER.debug(
                             "Network error updating device %s (keeping last state): %s",
                             device.name, str(e)

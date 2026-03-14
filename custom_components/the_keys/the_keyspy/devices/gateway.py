@@ -1,7 +1,7 @@
-from curses import meta
 from .base import TheKeysDevice
 import base64
 import hmac
+import json
 import time
 import requests
 from enum import Enum
@@ -203,8 +203,26 @@ class TheKeysGateway(TheKeysDevice):
                     # after the response, leaving no recovery time for the gateway.
                     self._last_request_time = time.time()
 
-                    logger.debug("response_data: %s", response.json())
-                    return response.json()
+                    try:
+                        response_json = response.json()
+                    except (json.JSONDecodeError, ValueError) as json_err:
+                        # Gateway returned non-JSON (e.g. 500 HTML error page, truncated body).
+                        # Treat as a transient connection error and retry if attempts remain.
+                        logger.debug(
+                            "Non-JSON response from %s for /%s (HTTP %s): %s — body: %.80s",
+                            self._host, url, response.status_code, json_err,
+                            response.text,
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                            retry_delay *= 2
+                            continue
+                        raise RuntimeError(
+                            f"Gateway returned non-JSON response for /{url}: {response.text[:200]}"
+                        ) from json_err
+
+                    logger.debug("response_data: %s", response_json)
+                    return response_json
 
             except requests.exceptions.ConnectionError as error:
                 error_str = str(error)
