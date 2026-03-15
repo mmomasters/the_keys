@@ -177,6 +177,14 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                     break
                                 except Exception as sync_err:
                                     sync_err_msg = str(sync_err)
+                                    # Check if the gateway is simply busy (code 500)
+                                    # — this happens when it is mid-synchronization.
+                                    # Treat as transient and log at DEBUG, not WARNING.
+                                    is_busy = (
+                                        "'code': 500" in sync_err_msg
+                                        or '"code": 500' in sync_err_msg
+                                        or "busy" in sync_err_msg.lower()
+                                    )
                                     if sync_attempt < 2:
                                         _LOGGER.debug(
                                             "Gateway sync busy for %s (sync attempt %d/3): %s, "
@@ -185,7 +193,8 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                         )
                                         await asyncio.sleep(5)
                                     else:
-                                        _LOGGER.warning(
+                                        log_fn = _LOGGER.debug if is_busy else _LOGGER.warning
+                                        log_fn(
                                             "Failed to auto-sync gateway time for %s after "
                                             "3 attempts: %s",
                                             device.name, sync_err_msg
