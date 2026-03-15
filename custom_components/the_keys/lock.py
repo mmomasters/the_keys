@@ -2,6 +2,8 @@
 import asyncio
 import logging
 
+import requests
+
 from homeassistant.components.lock import LockEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -62,6 +64,12 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
         """Lock the device."""
         try:
             await self.hass.async_add_executor_job(self._device.close)
+        except (requests.exceptions.ConnectionError, ConnectionError, OSError) as err:
+            _LOGGER.warning("Gateway not responding while locking %s: %s", self._device.name, err)
+            raise HomeAssistantError(
+                f"Gateway not responding — could not lock {self._device.name}. "
+                "Please wait a moment and try again."
+            ) from err
         except Exception as err:
             _LOGGER.error("Error locking %s: %s", self._device.name, err)
             raise HomeAssistantError(f"Could not lock {self._device.name}: {err}") from err
@@ -77,6 +85,12 @@ class TheKeysLockEntity(CoordinatorEntity, TheKeysEntity, LockEntity):
         """Unlock the device."""
         try:
             await self.hass.async_add_executor_job(self._device.open)
+        except (requests.exceptions.ConnectionError, ConnectionError, OSError) as err:
+            _LOGGER.warning("Gateway not responding while unlocking %s: %s", self._device.name, err)
+            raise HomeAssistantError(
+                f"Gateway not responding — could not unlock {self._device.name}. "
+                "Please wait a moment and try again."
+            ) from err
         except Exception as err:
             _LOGGER.error("Error unlocking %s: %s", self._device.name, err)
             raise HomeAssistantError(f"Could not unlock {self._device.name}: {err}") from err

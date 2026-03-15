@@ -1,6 +1,8 @@
 """The Keys Button entities."""
 import logging
 
+import requests
+
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
@@ -67,10 +69,13 @@ class TheKeysCalibrateButton(TheKeysButtonEntity):
             if hasattr(self._device, 'calibrate'):
                 await self.hass.async_add_executor_job(self._device.calibrate)
                 _LOGGER.info("Calibrate command sent to %s", self._device.name)
-                # Request coordinator update after calibrate
                 await self.coordinator.async_request_refresh()
             else:
                 _LOGGER.warning("Calibrate method not available for %s", self._device.name)
+        except (requests.exceptions.ConnectionError, ConnectionError, OSError) as err:
+            _LOGGER.warning(
+                "Gateway not responding while calibrating %s: %s", self._device.name, err
+            )
         except Exception as err:
             _LOGGER.error("Error calibrating %s: %s", self._device.name, err)
 
@@ -97,5 +102,9 @@ class TheKeysSyncButton(TheKeysButtonEntity):
                 _LOGGER.warning("Sync method not available for %s", self._device.name)
             # Request coordinator update after sync
             await self.coordinator.async_request_refresh()
+        except (requests.exceptions.ConnectionError, ConnectionError, OSError) as err:
+            _LOGGER.warning(
+                "Gateway not responding while syncing %s: %s", self._device.name, err
+            )
         except Exception as err:
             _LOGGER.error("Error syncing %s: %s", self._device.name, err)

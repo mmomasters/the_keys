@@ -226,28 +226,22 @@ class TheKeysGateway(TheKeysDevice):
 
             except requests.exceptions.ConnectionError as error:
                 error_str = str(error)
-                # "Connection refused" (errno 111) means the gateway is actively down.
-                # Retrying immediately is pointless — it won't recover in 1-4 seconds.
-                # Fail fast so the caller can handle it without wasting time.
-                if "Connection refused" in error_str or "Errno 111" in error_str:
-                    logger.debug(
-                        "Connection refused by %s for /%s — gateway is down, failing fast",
-                        self._host, url,
-                    )
-                    raise
-
-                # Other ConnectionError (e.g. reset, aborted) — retry with backoff
+                # Retry ALL connection errors with exponential backoff.
+                # Even "Connection refused" (Errno 111) can recover in a second or two
+                # when the gateway is momentarily overwhelmed (e.g. the coordinator and
+                # a user-initiated lock command fire simultaneously).  Fail-fast would
+                # cause user-visible errors that a short wait would have avoided.
                 if attempt < max_retries - 1:
                     logger.debug(
-                        "Connection error to %s (attempt %d/%d): %s - retrying in %ds...",
-                        self._host, attempt + 1, max_retries, error_str, retry_delay,
+                        "Connection error to %s for /%s (attempt %d/%d): %s — retrying in %ds...",
+                        self._host, url, attempt + 1, max_retries, error_str, retry_delay,
                     )
                     time.sleep(retry_delay)
                     retry_delay *= 2
                 else:
                     logger.debug(
-                        "Failed to connect to %s after %d attempts: %s",
-                        self._host, max_retries, error_str,
+                        "Failed to connect to %s for /%s after %d attempts: %s",
+                        self._host, url, max_retries, error_str,
                     )
                     raise
 
