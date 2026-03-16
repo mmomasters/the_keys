@@ -3,12 +3,12 @@
         "abort": {
             "already_configured": "Device is already configured"
         },
-    "error": {
-      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "unknown": "[%key:common::config_flow::error::unknown%]",
-      "invalid_phone_number": "[%key:common::config_flow::error::invalid_phone_number%]",
-      "invalid_gateway_ip": "Invalid gateway address format. Enter IP address, hostname, or hostname:port (e.g., 192.168.1.1, gateway.local, gateway.local:8080)"
-    },
+        "error": {
+            "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+            "unknown": "[%key:common::config_flow::error::unknown%]",
+            "invalid_phone_number": "[%key:common::config_flow::error::invalid_phone_number%]",
+            "invalid_gateway_ip": "Invalid gateway address format. Enter IP address, hostname, or hostname:port (e.g., 192.168.1.1, gateway.local, gateway.local:8080)"
+        },
         "step": {
             "user": {
                 "data": {
@@ -17,6 +17,12 @@
                     "gateway_ip": "Gateway IP address"
                 }
             }
+        }
+    },
+    "issues": {
+        "gateway_unreachable": {
+            "title": "The Keys gateway is unreachable",
+            "description": "The gateway at `{gateway_host}` has been unreachable for {consecutive_failures} consecutive poll cycles.\n\nPlease check:\n- The gateway device is powered on and connected to your network\n- Your router's port forwarding rule is still active\n- The gateway's local IP address hasn't changed (DHCP reassignment)\n\nUpdates will resume automatically once the gateway is reachable again."
         }
     }
 }

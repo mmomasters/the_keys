@@ -11,6 +11,7 @@ from homeassistant.const import (CONF_PASSWORD, CONF_SCAN_INTERVAL,
                                  CONF_USERNAME, Platform)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .the_keyspy import TheKeysApi, TheKeysLock
 
@@ -47,10 +48,14 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
 
     # Track gateway reachability to avoid repeating the same WARNING every poll cycle
     _gateway_reachable = True
+    # Count consecutive failed cycles; used to raise a HA Repair issue after prolonged outages
+    _consecutive_failures = 0
+    # Issue ID is scoped to this config entry so multi-instance setups work correctly
+    _issue_id = f"gateway_unreachable_{entry.entry_id}"
 
     async def async_update_data():
         """Refresh device data - DO NOT call get_devices again!"""
-        nonlocal _gateway_reachable
+        nonlocal _gateway_reachable, _consecutive_failures
 
         # Check gateway reachability/status before polling individual devices.
         # We route this through the shared gateway object so the rate limiter
@@ -70,6 +75,10 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                 if not _gateway_reachable:
                     _LOGGER.info("Gateway (%s) is back online, resuming device updates", gateway_host)
                     _gateway_reachable = True
+
+                # Clear any active repair issue and reset the failure counter
+                _consecutive_failures = 0
+                ir.async_delete_issue(hass, DOMAIN, _issue_id)
 
                 if "Synchronizing" in gateway_status.get("current_status", ""):
                     _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
@@ -100,6 +109,29 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         "Gateway (%s) still unreachable (%s), skipping device updates",
                         gateway_host, reason,
                     )
+
+                # Raise a HA Repair issue after 5 consecutive failures (~10 min at default
+                # 2-min interval) so the user gets a visible alert in the HA UI.
+                _consecutive_failures += 1
+                if _consecutive_failures == 5:
+                    _LOGGER.warning(
+                        "Gateway (%s) has been unreachable for %d consecutive cycles — "
+                        "creating a Repair issue in Home Assistant",
+                        gateway_host, _consecutive_failures,
+                    )
+                    ir.async_create_issue(
+                        hass,
+                        DOMAIN,
+                        _issue_id,
+                        is_fixable=False,
+                        severity=ir.IssueSeverity.WARNING,
+                        translation_key="gateway_unreachable",
+                        translation_placeholders={
+                            "gateway_host": gateway_host,
+                            "consecutive_failures": str(_consecutive_failures),
+                        },
+                    )
+
                 return devices
         
         # Only refresh existing device objects, don't create new ones

@@ -18,5 +18,11 @@
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     }
+  },
+  "issues": {
+    "gateway_unreachable": {
+      "title": "The Keys gateway is unreachable",
+      "description": "The gateway at `{gateway_host}` has been unreachable for {consecutive_failures} consecutive poll cycles.\n\nPlease check:\n- The gateway device is powered on and connected to your network\n- Your router's port forwarding rule is still active\n- The gateway's local IP address hasn't changed (DHCP reassignment)\n\nUpdates will resume automatically once the gateway is reachable again."
+    }
   }
 }

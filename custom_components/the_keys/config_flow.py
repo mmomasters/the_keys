@@ -154,14 +154,42 @@ def _validate_gateway_address(gateway: str) -> bool:
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: config_entries.ConfigEntry) -> bool:
     """Migrate old entry to new."""
-    pass
+    _LOGGER.debug(
+        "Migrating The Keys config entry from version %s.%s",
+        config_entry.version,
+        config_entry.minor_version,
+    )
+
+    if config_entry.version == 1 and config_entry.minor_version < 2:
+        # Minor version 1 → 2: default scan interval changed from 60s to 120s.
+        # If the user hasn't customised the interval (still at the old 60s default),
+        # bump it to 120s to avoid overwhelming the gateway.
+        old_interval = config_entry.data.get(CONF_SCAN_INTERVAL, 60)
+        new_data = dict(config_entry.data)
+        if old_interval == 60:
+            new_data[CONF_SCAN_INTERVAL] = int(DEFAULT_SCAN_INTERVAL)
+            _LOGGER.info(
+                "Migrated The Keys scan interval from 60s to %ds (new default)",
+                int(DEFAULT_SCAN_INTERVAL),
+            )
+
+        hass.config_entries.async_update_entry(
+            config_entry, data=new_data, minor_version=2
+        )
+
+    _LOGGER.debug(
+        "Migration to version %s.%s successful",
+        config_entry.version,
+        config_entry.minor_version,
+    )
+    return True
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for The Keys."""
 
     VERSION = 1
-    MINOR_VERSION = 1
+    MINOR_VERSION = 2
 
     async def async_step_import(self, import_config):
         """Import a config entry from configuration.yaml."""

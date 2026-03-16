@@ -18,5 +18,11 @@
                 }
             }
         }
+    },
+    "issues": {
+        "gateway_unreachable": {
+            "title": "La passerelle The Keys est inaccessible",
+            "description": "La passerelle `{gateway_host}` est inaccessible depuis {consecutive_failures} cycles d'interrogation cons\u00e9cutifs.\n\nV\u00e9rifiez :\n- La passerelle est allum\u00e9e et connect\u00e9e au r\u00e9seau\n- La r\u00e8gle de redirection de port de votre routeur est toujours active\n- L'adresse IP locale de la passerelle n'a pas chang\u00e9 (r\u00e9attribution DHCP)\n\nLes mises \u00e0 jour reprendront automatiquement d\u00e8s que la passerelle sera de nouveau accessible."
+        }
     }
 }
