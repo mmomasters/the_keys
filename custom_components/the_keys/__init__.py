@@ -110,8 +110,8 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         gateway_host, reason,
                     )
 
-                # Raise a HA Repair issue after 5 consecutive failures (~10 min at default
-                # 2-min interval) so the user gets a visible alert in the HA UI.
+                # Raise a HA Repair issue after 5 consecutive failures (~25 min at default
+                # 5-min interval) so the user gets a visible alert in the HA UI.
                 _consecutive_failures += 1
                 if _consecutive_failures == 5:
                     _LOGGER.warning(
