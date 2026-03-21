@@ -36,17 +36,17 @@ class TheKeysGateway(TheKeysDevice):
     def __init__(self, id: int, host: str, rate_limit_delay: float = 5.0, rate_limit_delay_light: float = 1.0) -> None:
         super().__init__(id)
         self._host = host
-
-    @property
-    def name(self) -> str:
-        """This gateway name"""
-        return f"Gateway {self._host}"
         # Rate limiting to prevent overwhelming the gateway:
         # - Heavy operations (open/close/calibrate/locker_status): 5.0s delay
         # - Light operations (gateway status/list/sync/update): 1.0s delay
         self._rate_limit_delay = rate_limit_delay  # Delay for heavy operations
         self._rate_limit_delay_light = rate_limit_delay_light  # Delay for light operations
         self._last_request_time = 0
+
+    @property
+    def name(self) -> str:
+        """This gateway name"""
+        return f"Gateway {self._host}"
 
     def _rate_limit(self, light_operation: bool = False) -> None:
         """Enforce rate limiting between requests
