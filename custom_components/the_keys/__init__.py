@@ -49,6 +49,10 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
 
     # Track gateway reachability to avoid repeating the same WARNING every poll cycle
     _gateway_reachable = True
+    # Track if the gateway is currently synchronizing
+    _is_synchronizing = False
+    # Track the last reboot time to avoid reboot loops
+    _last_reboot_time = None
     # Count consecutive failed cycles; used to raise a HA Repair issue after prolonged outages
     _consecutive_failures = 0
     # Issue ID is scoped to this config entry so multi-instance setups work correctly
@@ -56,7 +60,7 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
 
     async def async_update_data():
         """Refresh device data - DO NOT call get_devices again!"""
-        nonlocal _gateway_reachable, _consecutive_failures
+        nonlocal _gateway_reachable, _is_synchronizing, _last_reboot_time, _consecutive_failures
 
         # Check gateway reachability/status before polling individual devices.
         # We route this through the shared gateway object so the rate limiter
@@ -83,7 +87,10 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
 
                 if "Synchronizing" in gateway_status.get("current_status", ""):
                     _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
+                    _is_synchronizing = True
                     return devices  # Return without updating, keep last state
+                
+                _is_synchronizing = False
 
             except Exception as e:
                 # Gateway is unreachable — skip all device polls this cycle.
@@ -115,19 +122,33 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                 # (~25 min at default 5-min interval).
                 _consecutive_failures += 1
                 if _consecutive_failures == 5:
-                    _LOGGER.warning(
-                        "Gateway (%s) has been unreachable for %d consecutive cycles — "
-                        "triggering automatic reboot via cloud API",
-                        gateway_host, _consecutive_failures,
-                    )
-                    # Trigger reboot
-                    success = await hass.async_add_executor_job(
-                        api.reboot_gateway, gateway_device._gateway.id
-                    )
-                    if success:
-                        _LOGGER.info("Automatic reboot command successfully sent for %s", gateway_host)
+                    # SAFETY CHECK 1: Don't reboot if it was already synchronizing
+                    if _is_synchronizing:
+                        _LOGGER.warning(
+                            "Gateway (%s) is unreachable but was last seen synchronizing. "
+                            "Wait for it to finish.", gateway_host
+                        )
+                    # SAFETY CHECK 2: Don't reboot if we just did it recently (30 min cooldown)
+                    elif _last_reboot_time and (datetime.now() - _last_reboot_time) < timedelta(minutes=30):
+                        _LOGGER.warning(
+                            "Gateway (%s) is unreachable but was rebooted less than 30 min ago. "
+                            "Wait for it to stabilize.", gateway_host
+                        )
                     else:
-                        _LOGGER.error("Failed to trigger automatic reboot for %s", gateway_host)
+                        _LOGGER.warning(
+                            "Gateway (%s) has been unreachable for %d consecutive cycles — "
+                            "triggering automatic reboot via cloud API",
+                            gateway_host, _consecutive_failures,
+                        )
+                        # Trigger reboot
+                        success = await hass.async_add_executor_job(
+                            api.reboot_gateway, gateway_device._gateway.id
+                        )
+                        if success:
+                            _LOGGER.info("Automatic reboot command successfully sent for %s", gateway_host)
+                            _last_reboot_time = datetime.now()
+                        else:
+                            _LOGGER.error("Failed to trigger automatic reboot for %s", gateway_host)
 
                     ir.async_create_issue(
                         hass,
