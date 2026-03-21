@@ -119,9 +119,9 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                     )
 
                 # Raise a HA Repair issue and trigger auto-reboot after 5 consecutive failures 
-                # (~25 min at default 5-min interval).
+                # (~5 min at default 1-min interval).
                 _consecutive_failures += 1
-                if _consecutive_failures == 5:
+                if _consecutive_failures >= 5:
                     # SAFETY CHECK 1: Don't reboot if it was already synchronizing
                     if _is_synchronizing:
                         _LOGGER.warning(
@@ -130,7 +130,7 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         )
                     # SAFETY CHECK 2: Don't reboot if we just did it recently (30 min cooldown)
                     elif _last_reboot_time and (datetime.now() - _last_reboot_time) < timedelta(minutes=30):
-                        _LOGGER.warning(
+                        _LOGGER.debug(
                             "Gateway (%s) is unreachable but was rebooted less than 30 min ago. "
                             "Wait for it to stabilize.", gateway_host
                         )
@@ -140,7 +140,9 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                             "triggering automatic reboot via cloud API",
                             gateway_host, _consecutive_failures,
                         )
-                        # Trigger reboot
+                        # Trigger reboot - use the REAL accessory ID from gateway_device._gateway.id
+                        # (Note: local IP manual setups sometimes mock ID=1, we must ensure 
+                        # the API uses the real cloud ID discovered during setup)
                         success = await hass.async_add_executor_job(
                             api.reboot_gateway, gateway_device._gateway.id
                         )

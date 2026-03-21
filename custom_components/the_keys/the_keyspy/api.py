@@ -269,6 +269,27 @@ class TheKeysApi:
 
     def reboot_gateway(self, accessory_id: int) -> bool:
         """Reboot the gateway via the cloud API."""
+        # If the ID is 1, it's a dummy ID from a manual setup.
+        # We need the real cloud ID to reboot via the portal.
+        if accessory_id == 1:
+            logger.debug("Gateway ID is 1 (local-only), searching for real cloud ID...")
+            try:
+                user = self.find_utilisateur_by_username(self._username)
+                gateways = []
+                for serrure in user.serrures:
+                    if hasattr(serrure, 'accessoires'):
+                        gateways.extend([a.accessoire.id for a in serrure.accessoires 
+                                       if a.accessoire.type == ACCESSORY_GATEWAY])
+                if gateways:
+                    accessory_id = gateways[0]
+                    logger.debug("Found real cloud ID: %s", accessory_id)
+                else:
+                    logger.error("Could not find any gateway ID in your account")
+                    return False
+            except Exception as e:
+                logger.error("Error finding real gateway ID: %s", e)
+                return False
+
         session = self.__authenticate_session()
         reboot_url = f"{self._base_url}/fr/compte/accessoire/{accessory_id}/reboot"
         

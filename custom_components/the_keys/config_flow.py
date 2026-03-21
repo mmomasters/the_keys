@@ -160,14 +160,12 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: config_entries.
         config_entry.minor_version,
     )
 
-    if config_entry.version == 1 and config_entry.minor_version < 3:
-        # Minor version 1.2 → 1.3: default scan interval changed from 120s to 300s.
-        # If the user hasn't customised the interval (still at 120s),
-        # bump it to 300s to avoid overwhelming the gateway.
-        # We also check for 60s in case they missed the previous migration.
+    if config_entry.version == 1 and config_entry.minor_version < 4:
+        # Minor version 1.3 → 1.4: default scan interval changed back to 60s.
+        # We also check for 120s and 300s in case they are on those old defaults.
         old_interval = config_entry.data.get(CONF_SCAN_INTERVAL, 60)
         new_data = dict(config_entry.data)
-        if old_interval in (60, 120):
+        if old_interval in (120, 300):
             new_data[CONF_SCAN_INTERVAL] = int(DEFAULT_SCAN_INTERVAL)
             _LOGGER.info(
                 "Migrated The Keys scan interval from %ds to %ds (new default)",
@@ -176,7 +174,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: config_entries.
             )
 
         hass.config_entries.async_update_entry(
-            config_entry, data=new_data, minor_version=3
+            config_entry, data=new_data, minor_version=4
         )
 
     _LOGGER.debug(
@@ -191,7 +189,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for The Keys."""
 
     VERSION = 1
-    MINOR_VERSION = 3
+    MINOR_VERSION = 4
 
     async def async_step_import(self, import_config):
         """Import a config entry from configuration.yaml."""
