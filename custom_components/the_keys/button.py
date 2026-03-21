@@ -127,7 +127,7 @@ class TheKeysRebootButton(CoordinatorEntity, TheKeysEntity, ButtonEntity):
     @property
     def name(self) -> str:
         """Return the name of the button."""
-        return f"{self._device._host} Reboot"
+        return "Reboot"
 
     async def async_press(self) -> None:
         """Handle the button press."""

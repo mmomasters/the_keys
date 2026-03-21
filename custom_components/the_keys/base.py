@@ -16,7 +16,7 @@ class TheKeysEntity(Entity):
             identifiers={(DOMAIN, str(device.id))},
             name=device.name,
             manufacturer="The Keys",
-            model="Smart Lock",
+            model="Gateway" if device.__class__.__name__ == "TheKeysGateway" else "Smart Lock",
         )
 
     @property
