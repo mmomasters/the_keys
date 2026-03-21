@@ -52,6 +52,7 @@ class TheKeysApi:
         self._gateway_ip = gateway_ip
         self._base_url = base_url
         self._access_token = None
+        self._session = None
         self._rate_limit_delay = rate_limit_delay
         self._rate_limit_delay_light = rate_limit_delay_light
 
@@ -236,6 +237,7 @@ class TheKeysApi:
         return self.__http_request("post", url, data)
 
     def __authenticate(self):
+        # REST API authentication
         response = requests.post(
             f"{self._base_url}/api/login_check",
             data={"_username": self._username, "_password": self._password},
@@ -247,6 +249,51 @@ class TheKeysApi:
         json = response.json()
         self._access_token = json["access_token"]
         self.expires_in = json["expires_in"]
+
+    def __authenticate_session(self):
+        """Create a session for account-based actions (like reboot)."""
+        if self._session is None:
+            self._session = requests.Session()
+        
+        login_url = f"{self._base_url}/auth/fr/login_check"
+        login_data = {"_username": self._username, "_password": self._password}
+        
+        response = self._session.post(login_url, data=login_data)
+        if response.status_code != 200:
+            # Check for redirect to login page (302) which requests.Session follows by default.
+            # If the final URL is still a login page, it failed.
+            if "login" in response.url:
+                raise RuntimeError("Session authentication failed")
+        
+        return self._session
+
+    def reboot_gateway(self, accessory_id: int) -> bool:
+        """Reboot the gateway via the cloud API."""
+        session = self.__authenticate_session()
+        reboot_url = f"{self._base_url}/fr/compte/accessoire/{accessory_id}/reboot"
+        
+        try:
+            # This is a GET request in the web interface
+            response = session.get(reboot_url)
+            # A successful reboot redirects to the accessory view page
+            if response.status_code == 200 and f"/accessoire/{accessory_id}/view" in response.url:
+                logger.info("Successfully triggered reboot for gateway %s", accessory_id)
+                return True
+            
+            # If redirected back to login, retry authentication once
+            if "login" in response.url:
+                self._session = None
+                session = self.__authenticate_session()
+                response = session.get(reboot_url)
+                if response.status_code == 200 and f"/accessoire/{accessory_id}/view" in response.url:
+                    return True
+                    
+            logger.error("Failed to reboot gateway %s: %s (Final URL: %s)", 
+                        accessory_id, response.status_code, response.url)
+            return False
+        except Exception as err:
+            logger.error("Error during gateway reboot: %s", err)
+            return False
 
     def __enter__(self):
         return self

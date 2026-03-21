@@ -33,6 +33,8 @@ async def async_setup_entry(
         if isinstance(device, TheKeysLock):
             entities.append(TheKeysCalibrateButton(coordinator, device))
             entities.append(TheKeysSyncButton(coordinator, device))
+        elif isinstance(device, TheKeysGateway):
+            entities.append(TheKeysRebootButton(coordinator, device))
 
     async_add_entities(entities, update_before_add=False)
 
@@ -108,3 +110,52 @@ class TheKeysSyncButton(TheKeysButtonEntity):
             )
         except Exception as err:
             _LOGGER.error("Error syncing %s: %s", self._device.name, err)
+
+
+class TheKeysRebootButton(CoordinatorEntity, TheKeysEntity, ButtonEntity):
+    """Button to reboot The Keys gateway."""
+
+    def __init__(self, coordinator, device):
+        """Init reboot button."""
+        super().__init__(coordinator)
+        TheKeysEntity.__init__(self, device=device)
+        self._device = device
+        self._attr_unique_id = f"{self._device.id}_reboot_button"
+        self._attr_icon = "mdi:restart"
+        self._attr_entity_category = EntityCategory.CONFIG
+
+    @property
+    def name(self) -> str:
+        """Return the name of the button."""
+        return f"{self._device._host} Reboot"
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        # Use the API directly from the coordinator
+        # The coordinator has access to the api via its update_method closure
+        # but here we'll need to reach it.
+        # Coordinator setup creates 'api' variable.
+        # We can find it in the coordinator's state if we stored it, 
+        # but current __init__.py doesn't store api on coordinator.
+        # Let's check __init__.py again.
+        
+        # Accessing api from coordinator's underlying api object if possible
+        # In __init__.py, api is a local variable in async_setup_coordinator.
+        # We need to make it accessible.
+        
+        try:
+            # For now, we assume the coordinator has an api attribute 
+            # (we will add it in the next step)
+            if hasattr(self.coordinator, 'api'):
+                _LOGGER.info("Manually triggering reboot for gateway %s", self._device.id)
+                success = await self.hass.async_add_executor_job(
+                    self.coordinator.api.reboot_gateway, self._device.id
+                )
+                if success:
+                    _LOGGER.info("Reboot command successfully sent to cloud for %s", self._device._host)
+                else:
+                    _LOGGER.error("Failed to send reboot command for %s", self._device._host)
+            else:
+                _LOGGER.error("API not available on coordinator for reboot")
+        except Exception as err:
+            _LOGGER.error("Error rebooting %s: %s", self._device._host, err)

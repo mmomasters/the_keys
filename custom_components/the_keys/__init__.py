@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_RATE_LIMIT_DELAY_LIGHT,
     DOMAIN,
 )
+from .the_keyspy.devices import TheKeysGateway
 
 PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR, Platform.BUTTON]
 
@@ -110,15 +111,24 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         gateway_host, reason,
                     )
 
-                # Raise a HA Repair issue after 5 consecutive failures (~25 min at default
-                # 5-min interval) so the user gets a visible alert in the HA UI.
+                # Raise a HA Repair issue and trigger auto-reboot after 5 consecutive failures 
+                # (~25 min at default 5-min interval).
                 _consecutive_failures += 1
                 if _consecutive_failures == 5:
                     _LOGGER.warning(
                         "Gateway (%s) has been unreachable for %d consecutive cycles — "
-                        "creating a Repair issue in Home Assistant",
+                        "triggering automatic reboot via cloud API",
                         gateway_host, _consecutive_failures,
                     )
+                    # Trigger reboot
+                    success = await hass.async_add_executor_job(
+                        api.reboot_gateway, gateway_device._gateway.id
+                    )
+                    if success:
+                        _LOGGER.info("Automatic reboot command successfully sent for %s", gateway_host)
+                    else:
+                        _LOGGER.error("Failed to trigger automatic reboot for %s", gateway_host)
+
                     ir.async_create_issue(
                         hass,
                         DOMAIN,
@@ -270,6 +280,7 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
         update_interval=timedelta(seconds=entry.data.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
     )
+    coordinator.api = api
 
     await coordinator.async_config_entry_first_refresh()
     return coordinator
