@@ -52,14 +52,20 @@ class TheKeysApi:
         self._gateway_ip = gateway_ip
         self._base_url = base_url
         self._access_token = None
+        self._token_expires_at = None
         self._session = None
         self._rate_limit_delay = rate_limit_delay
         self._rate_limit_delay_light = rate_limit_delay_light
 
     @property
     def authenticated(self):
-        """Get the token"""
-        return not self._access_token is None
+        """Return True if the access token exists and has not expired."""
+        if not self._access_token:
+            return False
+        if self._token_expires_at and datetime.now() >= self._token_expires_at:
+            self._access_token = None
+            return False
+        return True
 
     def find_utilisateur_by_username(self, username: str) -> Utilisateur:
         """Return user matching the passed username"""
@@ -248,7 +254,9 @@ class TheKeysApi:
 
         json = response.json()
         self._access_token = json["access_token"]
-        self.expires_in = json["expires_in"]
+        expires_in = json.get("expires_in", 3600)
+        # Subtract 60s buffer so we refresh before the server rejects the token
+        self._token_expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
 
     def __authenticate_session(self):
         """Create a session for account-based actions (like reboot)."""
