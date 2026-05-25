@@ -26,7 +26,7 @@ This is a Home Assistant custom integration for The Keys smart locks. It has two
 ### `the_keyspy/` — Python library
 Handles all communication, independent of Home Assistant:
 - **`api.py` (`TheKeysApi`)** — Cloud API client. Authenticates with JWT tokens (auto-refreshed on expiry), discovers devices, manages access shares, and triggers cloud reboots. Device discovery runs **once at setup** and returns a list of `TheKeysDevice` objects.
-- **`devices/gateway.py` (`TheKeysGateway`)** — Local HTTP client for the physical gateway (e.g. `192.168.x.x:port`). Enforces a per-gateway **rate limiter** (heavy ops: 1s, light ops: 0.5s) that serializes all requests to prevent hardware overload. Has its own 3-attempt retry with backoff.
+- **`devices/gateway.py` (`TheKeysGateway`)** — Local HTTP client for the physical gateway (e.g. `192.168.x.x:port`). Enforces a per-gateway **rate limiter** (heavy ops: 1s, light ops: 0.5s) that serializes all requests to prevent hardware overload. Has its own 3-attempt retry with backoff and a `(connect=5s, read=15s)` timeout. Raises typed errors: `GatewayError` (carries the gateway's numeric `.code` for a `ko` response) and `GatewayUnreachableError` (wraps `requests` timeout/connection errors after retries are exhausted; subclasses both `TheKeysApiError` and `ConnectionError`).
 - **`devices/lock.py` (`TheKeysLock`)** — Lock state and battery level. Battery uses a calibrated linear formula (raw ADC → %, ±1% accuracy).
 
 ### `custom_components/the_keys/` — Home Assistant integration
@@ -35,9 +35,10 @@ Handles all communication, independent of Home Assistant:
 - **`lock.py` / `sensor.py` / `button.py`** — HA entities backed by the coordinator.
 
 ### Coordinator update flow (`__init__.py::async_update_data`)
-1. Check gateway reachability via `gateway.status()`.
-2. On failure, increment `_consecutive_failures`. After 5 failures, trigger cloud reboot (30-min cooldown between reboots; skip if gateway was last seen synchronizing).
-3. On success, iterate locks and call `device.retrieve_infos()` with per-lock retry logic keyed on error codes:
+1. **Ping-first liveness gate**: ICMP-ping the gateway host (`_host_responds_to_ping`) before any HTTP. A non-answering host means the network/internet is down — skip HTTP entirely (avoids ~30s of executor-blocking timeouts) and **never reboot** (a cloud reboot can't reach the gateway).
+2. If the host answers ping, check reachability via `gateway.status()`.
+3. On failure, `_note_unreachable()` increments `_consecutive_failures`. After 5 failures, trigger a cloud reboot **only when the host still answers ping** (= HTTP frozen but network alive); also skipped during a 30-min cooldown or if the gateway was last seen synchronizing. A HA Repair issue is raised regardless.
+4. On success, iterate locks and call `device.retrieve_infos()` with per-lock retry logic keyed on `GatewayError.code`:
    - **400/500** (busy) → wait 6s, retry
    - **38** (clock skew) → call `gateway.synchronize()`, retry
    - **33/34** (transient) → retry once

@@ -54,6 +54,12 @@ Service | Description
 
 ### Recent Improvements
 
+**v1.3.0 (2026-05-25)**
+- ✓ **Faster outage detection (ping-first)**: Each poll first pings the gateway before any HTTP call. If the host is unreachable the cycle ends in ~2s instead of stacking up to ~30s of blocked network timeouts.
+- ✓ **Smarter auto-reboot**: A frozen gateway is auto-rebooted via the cloud API **only when the host still answers ping** (network up, service stuck). If the host doesn't answer ping the whole site is offline, so no pointless reboot is attempted.
+- ✓ **More robust error handling**: Typed gateway errors (`GatewayError` / `GatewayUnreachableError`) replace brittle text matching, plus a `(connect 5s, read 15s)` HTTP timeout.
+- ✓ **Share lookup fix**: Prevents creating a duplicate access share when a non-default share name is used.
+
 **v1.2.0 (2026-01-30)**
 - ✓ **Battery Accuracy Fix**: Battery percentages now accurately reflect real values (±1% accuracy)
   - Previous version overestimated by 5-9%
