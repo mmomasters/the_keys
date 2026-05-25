@@ -12,6 +12,20 @@ import logging
 logger = logging.getLogger("the_keyspy.devices.gateway")
 
 
+class GatewayError(RuntimeError):
+    """Raised when the gateway returns a 'ko' response. Carries the numeric error code.
+
+    Subclasses RuntimeError so existing ``except RuntimeError`` handlers keep working,
+    and ``str(self)`` still renders the full payload dict for logging.
+    """
+
+    def __init__(self, payload):
+        """Store the raw gateway payload and extract its numeric error code."""
+        self.payload = payload
+        self.code = payload.get("code") if isinstance(payload, dict) else None
+        super().__init__(payload)
+
+
 class Action(Enum):
     """All available actions"""
 
@@ -176,12 +190,12 @@ class TheKeysGateway(TheKeysDevice):
                     )
                     time.sleep(1)  # Brief pause before regenerating timestamp
                     continue
-                raise RuntimeError(response_data)
+                raise GatewayError(response_data)
 
             return response_data
 
         # Should not be reached, but raise if all retries exhausted
-        raise RuntimeError({"status": "ko", "code": 33, "error": "timestamp rejected after all retries"})
+        raise GatewayError({"status": "ko", "code": 33, "error": "timestamp rejected after all retries"})
 
     def __http_request(self, url: str, data: Optional[dict] = None) -> Any:
         method = "post" if data else "get"

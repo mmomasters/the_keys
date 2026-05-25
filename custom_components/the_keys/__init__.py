@@ -1,6 +1,7 @@
 """The Keys integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -14,6 +15,7 @@ from homeassistant.helpers import entity_platform
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .the_keyspy import TheKeysApi, TheKeysLock
+from .the_keyspy.devices import GatewayError
 
 from .const import (
     CONF_GATEWAY_IP,
@@ -30,6 +32,32 @@ _LOGGER = logging.getLogger(__name__)
 
 SERVICE_CALIBRATE = "calibrate"
 SERVICE_SYNC = "sync"
+
+
+async def _host_responds_to_ping(host: str) -> bool:
+    """Return True if the gateway host answers an ICMP ping.
+
+    The gateway `_host` may carry a port (e.g. "192.168.1.50:8080"); ICMP has no
+    port, so strip it before pinging. A host that does not answer ping means the
+    remote site's network/internet is down: a cloud reboot can neither reach the
+    gateway nor help, so callers should skip rebooting in that case.
+
+    If the `ping` binary is missing or not permitted (some containers), we assume
+    the host is reachable so we never suppress a legitimately-needed reboot.
+    """
+    hostname = host.split(":")[0].strip("[]")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", "-W", "2", hostname,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        return await proc.wait() == 0
+    except OSError as err:
+        _LOGGER.debug(
+            "Could not run ping for %s (%s); assuming reachable", hostname, err
+        )
+        return True
 
 
 async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> DataUpdateCoordinator:
@@ -71,41 +99,22 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
         )
         if gateway_device:
             gateway_host = gateway_device._gateway._host
-            try:
-                gateway_status = await hass.async_add_executor_job(
-                    gateway_device._gateway.status
-                )
 
-                # Gateway is reachable — log recovery if it was previously down
-                if not _gateway_reachable:
-                    _LOGGER.info("Gateway (%s) is back online, resuming device updates", gateway_host)
-                    _gateway_reachable = True
+            async def _note_unreachable(reason: str, can_reboot: bool):
+                """Record a failed poll cycle and act on repeated failures.
 
-                # Clear any active repair issue and reset the failure counter
-                _consecutive_failures = 0
-                ir.async_delete_issue(hass, DOMAIN, _issue_id)
+                Logs once, counts failures, raises the HA Repair issue, and — only when
+                the gateway is network-alive but its HTTP service is frozen
+                (``can_reboot``) — triggers a cloud reboot.
 
-                if "Synchronizing" in gateway_status.get("current_status", ""):
-                    _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
-                    _is_synchronizing = True
-                    return devices  # Return without updating, keep last state
-                
-                _is_synchronizing = False
+                ``can_reboot`` is False when the host did not answer ping: the remote
+                network/internet is down, so a cloud reboot can neither reach the gateway
+                nor help.
+                """
+                nonlocal _gateway_reachable, _consecutive_failures, _last_reboot_time
 
-            except Exception as e:
-                # Gateway is unreachable — skip all device polls this cycle.
-                # Log WARNING only on first failure; subsequent cycles log DEBUG
-                # to avoid hundreds of identical warnings during an outage.
-                err_str = str(e)
-                if "timed out" in err_str.lower() or "ConnectTimeout" in err_str:
-                    reason = "connection timed out"
-                elif "Connection refused" in err_str or "Errno 111" in err_str:
-                    reason = "connection refused"
-                elif "Name or service not known" in err_str or "getaddrinfo" in err_str:
-                    reason = "DNS resolution failed"
-                else:
-                    reason = type(e).__name__
-
+                # Log WARNING only on the first failure; subsequent cycles log DEBUG to
+                # avoid hundreds of identical warnings during a prolonged outage.
                 if _gateway_reachable:
                     _LOGGER.warning(
                         "Gateway (%s) is unreachable (%s), skipping device updates",
@@ -118,17 +127,26 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         gateway_host, reason,
                     )
 
-                # Raise a HA Repair issue and trigger auto-reboot after 5 consecutive failures 
-                # (~5 min at default 1-min interval).
+                # Raise a HA Repair issue and (maybe) auto-reboot after 5 consecutive
+                # failures (~5 min at the default 1-min interval).
                 _consecutive_failures += 1
                 if _consecutive_failures >= 5:
-                    # SAFETY CHECK 1: Don't reboot if it was already synchronizing
-                    if _is_synchronizing:
+                    # SAFETY CHECK 1: host doesn't answer ping → network/internet is down,
+                    # a cloud reboot can't reach the gateway and wouldn't help.
+                    if not can_reboot:
+                        _LOGGER.warning(
+                            "Gateway (%s) is unreachable and does not answer ping — the "
+                            "remote network/internet appears to be down. Skipping reboot "
+                            "(a cloud reboot cannot reach the gateway).",
+                            gateway_host,
+                        )
+                    # SAFETY CHECK 2: don't reboot if it was last seen synchronizing
+                    elif _is_synchronizing:
                         _LOGGER.warning(
                             "Gateway (%s) is unreachable but was last seen synchronizing. "
                             "Wait for it to finish.", gateway_host
                         )
-                    # SAFETY CHECK 2: Don't reboot if we just did it recently (30 min cooldown)
+                    # SAFETY CHECK 3: don't reboot if we just did it recently (30 min cooldown)
                     elif _last_reboot_time and (datetime.now() - _last_reboot_time) < timedelta(minutes=30):
                         _LOGGER.debug(
                             "Gateway (%s) is unreachable but was rebooted less than 30 min ago. "
@@ -136,12 +154,12 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         )
                     else:
                         _LOGGER.warning(
-                            "Gateway (%s) has been unreachable for %d consecutive cycles — "
-                            "triggering automatic reboot via cloud API",
+                            "Gateway (%s) has been unreachable for %d consecutive cycles but "
+                            "still answers ping — triggering automatic reboot via cloud API",
                             gateway_host, _consecutive_failures,
                         )
                         # Trigger reboot - use the REAL accessory ID from gateway_device._gateway.id
-                        # (Note: local IP manual setups sometimes mock ID=1, we must ensure 
+                        # (Note: local IP manual setups sometimes mock ID=1, we must ensure
                         # the API uses the real cloud ID discovered during setup)
                         success = await hass.async_add_executor_job(
                             api.reboot_gateway, gateway_device._gateway.id
@@ -165,17 +183,61 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         },
                     )
 
+            # Fast liveness pre-check: ping before the slow, retrying HTTP status call.
+            # A non-answering host means the network/internet is down — skip HTTP entirely
+            # (saves up to ~30s of executor-blocking timeouts) and never reboot.
+            if not await _host_responds_to_ping(gateway_host):
+                await _note_unreachable("no ping reply", can_reboot=False)
                 return devices
-        
+
+            # Host answers ping — check the gateway's HTTP status. Routed through the
+            # shared gateway object so the rate limiter coordinates this request with
+            # the subsequent lock-polling requests.
+            try:
+                gateway_status = await hass.async_add_executor_job(
+                    gateway_device._gateway.status
+                )
+
+                # Gateway is reachable — log recovery if it was previously down
+                if not _gateway_reachable:
+                    _LOGGER.info("Gateway (%s) is back online, resuming device updates", gateway_host)
+                    _gateway_reachable = True
+
+                # Clear any active repair issue and reset the failure counter
+                _consecutive_failures = 0
+                ir.async_delete_issue(hass, DOMAIN, _issue_id)
+
+                if "Synchronizing" in gateway_status.get("current_status", ""):
+                    _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
+                    _is_synchronizing = True
+                    return devices  # Return without updating, keep last state
+
+                _is_synchronizing = False
+
+            except Exception as e:
+                # Ping succeeded but the HTTP status failed → the gateway is on the
+                # network but its service is likely frozen → reboot candidate.
+                err_str = str(e)
+                if "timed out" in err_str.lower() or "ConnectTimeout" in err_str:
+                    reason = "connection timed out"
+                elif "Connection refused" in err_str or "Errno 111" in err_str:
+                    reason = "connection refused"
+                elif "Name or service not known" in err_str or "getaddrinfo" in err_str:
+                    reason = "DNS resolution failed"
+                else:
+                    reason = type(e).__name__
+
+                await _note_unreachable(reason, can_reboot=True)
+                return devices
+
+
         # Only refresh existing device objects, don't create new ones
         for device in devices:
             if isinstance(device, TheKeysLock):
                 # Try to retrieve lock status with retry logic for timing errors
-                success = False
                 for attempt in range(3):  # Try up to 3 times
                     try:
                         await hass.async_add_executor_job(device.retrieve_infos)
-                        success = True
                         break  # Success! Exit retry loop
                     except (ConnectionError, TimeoutError, OSError,
                             requests.exceptions.RequestException) as e:
@@ -190,24 +252,11 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         )
                         break  # Don't retry - already retried at gateway level
                         
-                    except Exception as e:
-                        # Parse error to check if it's transient
-                        error_msg = str(e)
-                        error_code = None
-                        
-                        # Try to parse error dict from exception string
-                        if "{'status':" in error_msg or '{"status":' in error_msg:
-                            try:
-                                import ast
-                                error_dict = ast.literal_eval(error_msg)
-                                if isinstance(error_dict, dict):
-                                    error_code = error_dict.get('code')
-                            except (ValueError, SyntaxError):
-                                import re
-                                code_match = re.search(r"'code':\s*(\d+)", error_msg)
-                                if code_match:
-                                    error_code = int(code_match.group(1))
-                        
+                    except GatewayError as e:
+                        # The gateway returned a 'ko' response; its numeric code tells us
+                        # whether the failure is transient (busy / clock-skew) and worth a retry.
+                        error_code = e.code
+
                         # Error code 400: action already started / 500: busy
                         # Gateway is temporarily occupied — wait and retry.
                         # Lock takes ~5s to physically move, so wait 6s before retrying.
@@ -217,7 +266,6 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                 "waiting 6s before retry...",
                                 device.name, error_code, attempt + 1
                             )
-                            import asyncio
                             await asyncio.sleep(6)
                             continue  # Retry after waiting
 
@@ -229,7 +277,6 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                 device.name, attempt + 1
                             )
                             # Gateway may be busy - retry the sync itself up to 3 times
-                            import asyncio
                             sync_ok = False
                             for sync_attempt in range(3):
                                 try:
@@ -242,14 +289,9 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                                     break
                                 except Exception as sync_err:
                                     sync_err_msg = str(sync_err)
-                                    # Check if the gateway is simply busy (code 500)
-                                    # — this happens when it is mid-synchronization.
+                                    # Code 500 means the gateway is simply busy (mid-sync).
                                     # Treat as transient and log at DEBUG, not WARNING.
-                                    is_busy = (
-                                        "'code': 500" in sync_err_msg
-                                        or '"code": 500' in sync_err_msg
-                                        or "busy" in sync_err_msg.lower()
-                                    )
+                                    is_busy = getattr(sync_err, "code", None) == 500
                                     if sync_attempt < 2:
                                         _LOGGER.debug(
                                             "Gateway sync busy for %s (sync attempt %d/3): %s, "
@@ -288,7 +330,13 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                             # Not a transient error, log and move on
                             _LOGGER.error("Error updating device %s: %s", device.name, e)
                             break
-                
+
+                    except Exception as e:
+                        # Unexpected, non-gateway error — keep last state and move on
+                        # rather than letting the whole update cycle crash.
+                        _LOGGER.error("Unexpected error updating device %s: %s", device.name, e)
+                        break
+
                 # No additional sleep needed here — the shared gateway object's
                 # rate limiter already serializes all requests to the physical device.
 
