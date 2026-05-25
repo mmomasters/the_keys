@@ -1,4 +1,5 @@
 from .base import TheKeysDevice
+from ..errors import GatewayUnreachableError
 import base64
 import hmac
 import json
@@ -10,6 +11,10 @@ from typing import Any, Optional
 import logging
 
 logger = logging.getLogger("the_keyspy.devices.gateway")
+
+# (connect, read) timeouts in seconds — fail fast on a dead host, while leaving read
+# headroom for the BLE relay (normal calls take ~3s).
+GATEWAY_HTTP_TIMEOUT = (5, 15)
 
 
 class GatewayError(RuntimeError):
@@ -202,18 +207,17 @@ class TheKeysGateway(TheKeysDevice):
         logger.debug("%s %s", method.upper(), url)
         
         # Add timeout and retry logic for network resilience
-        timeout = 10  # 10 second timeout
         max_retries = 3
         retry_delay = 1  # Start with 1 second
-        
+
         for attempt in range(max_retries):
             try:
                 with requests.Session() as session:
                     full_url = f"http://{self._host}/{url}"
                     if method == "post":
-                        response = session.post(full_url, data=data, timeout=timeout)
+                        response = session.post(full_url, data=data, timeout=GATEWAY_HTTP_TIMEOUT)
                     else:
-                        response = session.get(full_url, timeout=timeout)
+                        response = session.get(full_url, timeout=GATEWAY_HTTP_TIMEOUT)
                     
                     # Reset the rate-limit timer AFTER the response is received so that
                     # the delay is measured from when the gateway finished processing,
@@ -262,7 +266,7 @@ class TheKeysGateway(TheKeysDevice):
                         "Failed to connect to %s for /%s after %d attempts: %s",
                         self._host, url, max_retries, error_str,
                     )
-                    raise
+                    raise GatewayUnreachableError(self._host, error) from error
 
             except (requests.exceptions.Timeout, ConnectionResetError) as error:
                 # Timeouts may recover — retry with exponential backoff
@@ -280,7 +284,7 @@ class TheKeysGateway(TheKeysDevice):
                         "Failed to connect to %s after %d attempts: %s",
                         self._host, max_retries, str(error),
                     )
-                    raise
+                    raise GatewayUnreachableError(self._host, error) from error
 
             except requests.exceptions.RequestException as error:
                 # Other request errors (don't retry these)

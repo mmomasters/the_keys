@@ -204,7 +204,7 @@ class TheKeysApi:
                 partages_accessoire = []
 
             partage = next((x for x in partages_accessoire if x.nom ==
-                           SHARE_NAME and x.accessoire.id == accessoire.accessoire.id), None)
+                           share_name and x.accessoire.id == accessoire.accessoire.id), None)
             if partage is None:
                 partage = self.create_accessoire_partage_for_serrure_id(
                     serrure.id, share_name, accessoire.accessoire)

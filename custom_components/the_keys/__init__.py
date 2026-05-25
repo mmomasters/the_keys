@@ -16,6 +16,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .the_keyspy import TheKeysApi, TheKeysLock
 from .the_keyspy.devices import GatewayError
+from .the_keyspy.errors import GatewayUnreachableError
 
 from .const import (
     CONF_GATEWAY_IP,
@@ -214,20 +215,26 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
 
                 _is_synchronizing = False
 
-            except Exception as e:
-                # Ping succeeded but the HTTP status failed → the gateway is on the
-                # network but its service is likely frozen → reboot candidate.
-                err_str = str(e)
-                if "timed out" in err_str.lower() or "ConnectTimeout" in err_str:
+            except GatewayUnreachableError as e:
+                # Ping succeeded but the HTTP status didn't respond → the gateway is on
+                # the network but its service is likely frozen → reboot candidate. The
+                # typed error carries the underlying requests exception in `.original`.
+                orig_str = str(e.original)
+                if isinstance(e.original, (requests.exceptions.Timeout, TimeoutError)):
                     reason = "connection timed out"
-                elif "Connection refused" in err_str or "Errno 111" in err_str:
-                    reason = "connection refused"
-                elif "Name or service not known" in err_str or "getaddrinfo" in err_str:
+                elif "getaddrinfo" in orig_str or "Name or service not known" in orig_str:
                     reason = "DNS resolution failed"
+                elif "refused" in orig_str or "Errno 111" in orig_str:
+                    reason = "connection refused"
                 else:
-                    reason = type(e).__name__
+                    reason = "connection error"
 
                 await _note_unreachable(reason, can_reboot=True)
+                return devices
+
+            except Exception as e:
+                # Gateway responded but with an unexpected error (e.g. a ko-status).
+                await _note_unreachable(type(e).__name__, can_reboot=True)
                 return devices
 
 

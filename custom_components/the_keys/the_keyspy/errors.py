@@ -31,3 +31,18 @@ class NoSharesFoundError(TheKeysApiError):
 class NoUtilisateurFoundError(TheKeysApiError):
     """Raised when the user could not be retrieved from the API."""
     pass
+
+
+class GatewayUnreachableError(TheKeysApiError, ConnectionError):
+    """Raised when the gateway cannot be reached (timeout or connection error).
+
+    Wraps requests.Timeout / requests.ConnectionError so callers see a library
+    exception instead of leaking requests internals. Also subclasses ConnectionError
+    so existing ``except ConnectionError`` handlers keep catching it (backward
+    compatible).
+    """
+
+    def __init__(self, host: str, original: Exception) -> None:
+        super().__init__(f"Gateway {host} unreachable: {original}")
+        self.host = host
+        self.original = original
