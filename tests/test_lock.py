@@ -82,7 +82,9 @@ async def test_async_lock_calls_device_close():
     entity.hass.async_add_executor_job = AsyncMock(return_value=None)
     entity.async_write_ha_state = MagicMock()
 
-    with patch("asyncio.sleep", new_callable=AsyncMock):
+    with patch("asyncio.sleep", new_callable=AsyncMock), \
+         patch("custom_components.the_keys.lock.gateway_is_synchronizing",
+               new_callable=AsyncMock, return_value=False):
         await entity.async_lock()
 
     entity.hass.async_add_executor_job.assert_awaited_once_with(device.close)
@@ -100,7 +102,9 @@ async def test_async_unlock_calls_device_open():
     entity.hass.async_add_executor_job = AsyncMock(return_value=None)
     entity.async_write_ha_state = MagicMock()
 
-    with patch("asyncio.sleep", new_callable=AsyncMock):
+    with patch("asyncio.sleep", new_callable=AsyncMock), \
+         patch("custom_components.the_keys.lock.gateway_is_synchronizing",
+               new_callable=AsyncMock, return_value=False):
         await entity.async_unlock()
 
     entity.hass.async_add_executor_job.assert_awaited_once_with(device.open)

@@ -38,10 +38,19 @@ Handles all communication, independent of Home Assistant:
 1. **Ping-first liveness gate**: ICMP-ping the gateway host (`_host_responds_to_ping`) before any HTTP. A non-answering host means the network/internet is down — skip HTTP entirely (avoids ~30s of executor-blocking timeouts) and **never reboot** (a cloud reboot can't reach the gateway).
 2. If the host answers ping, check reachability via `gateway.status()`.
 3. On failure, `_note_unreachable()` increments `_consecutive_failures`. After 5 failures, trigger a cloud reboot **only when the host still answers ping** (= HTTP frozen but network alive); also skipped during a 30-min cooldown or if the gateway was last seen synchronizing. A HA Repair issue is raised regardless.
-4. On success, iterate locks and call `device.retrieve_infos()` with per-lock retry logic keyed on `GatewayError.code`:
+4. **Stuck-sync watchdog**: `_synchronizing_since` records when the gateway first entered a `Synchronizing` phase. If that state persists past `STUCK_SYNC_THRESHOLD` (10 min — well above the ~4-min worst-case observed in `/tmp/gateway_bench.log` on 2026-05-31), force a cloud reboot even though the normal `_is_synchronizing` guard would block it. Still respects the 30-min cooldown.
+5. On success, iterate locks and call `device.retrieve_infos()` with per-lock retry logic keyed on `GatewayError.code`:
    - **400/500** (busy) → wait 6s, retry
    - **38** (clock skew) → call `gateway.synchronize()`, retry
    - **33/34** (transient) → retry once
+
+### User-action sync pre-check
+The gateway runs a continuous cycle `Synchronizing gw → Synchronizing <lockID> → Scanning → …` where the `gw` phase dominates (60 s to 4 min+). Any user action that has to reach the lock (lock / unlock / sync / calibrate buttons and services) calls `gateway_is_synchronizing(hass, device)` (defined in `base.py`) first:
+- **lock / unlock** → `raise HomeAssistantError("Gateway is synchronizing — try again in a minute.")` so HA surfaces a popup.
+- **sync / calibrate** → log INFO and return silently.
+- **Reboot button** is deliberately exempt — rebooting a stuck gateway is the escape hatch.
+
+The `Sync` paths additionally catch `GatewayError` with `.code in (33, 34)` and retry once with a 1s pause (handles the race where the gateway starts syncing between pre-check and call); on persistent failure they log WARNING (not ERROR).
 
 ### Gateway caching
 `TheKeysApi.get_devices()` caches `TheKeysGateway` instances by host IP so all locks on the same physical gateway share **one** gateway object and therefore one rate limiter.

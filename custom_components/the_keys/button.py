@@ -1,4 +1,5 @@
 """The Keys Button entities."""
+import asyncio
 import logging
 
 import requests
@@ -10,8 +11,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import EntityCategory
 from .the_keyspy import TheKeysGateway, TheKeysLock
+from .the_keyspy.devices import GatewayError
 
-from .base import TheKeysEntity
+from .base import TheKeysEntity, gateway_is_synchronizing
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,6 +69,12 @@ class TheKeysCalibrateButton(TheKeysButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press."""
+        if await gateway_is_synchronizing(self.hass, self._device):
+            _LOGGER.info(
+                "Gateway (%s) is synchronizing, try again shortly — calibrate skipped for %s",
+                self._device._gateway._host, self._device.name,
+            )
+            return
         try:
             if hasattr(self._device, 'calibrate'):
                 await self.hass.async_add_executor_job(self._device.calibrate)
@@ -92,18 +100,34 @@ class TheKeysSyncButton(TheKeysButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press."""
+        if await gateway_is_synchronizing(self.hass, self._device):
+            _LOGGER.info(
+                "Gateway (%s) is synchronizing, try again shortly — sync skipped for %s",
+                self._device._gateway._host, self._device.name,
+            )
+            return
         try:
-            if hasattr(self._device, 'sync'):
-                await self.hass.async_add_executor_job(self._device.sync)
-                _LOGGER.info("Sync command sent to %s", self._device.name)
-            elif hasattr(self._device, 'retrieve_infos'):
-                # Fallback to retrieve_infos as a sync alternative
-                await self.hass.async_add_executor_job(self._device.retrieve_infos)
-                _LOGGER.info("Sync (retrieve_infos) command sent to %s", self._device.name)
-            else:
-                _LOGGER.warning("Sync method not available for %s", self._device.name)
-            # Request coordinator update after sync
-            await self.coordinator.async_request_refresh()
+            for attempt in range(2):
+                try:
+                    await self.hass.async_add_executor_job(self._device.retrieve_infos)
+                    _LOGGER.info("Sync command sent to %s", self._device.name)
+                    await self.coordinator.async_request_refresh()
+                    return
+                except GatewayError as err:
+                    if err.code in (33, 34) and attempt == 0:
+                        _LOGGER.debug(
+                            "Transient error %s syncing %s, retrying once...",
+                            err.code, self._device.name,
+                        )
+                        await asyncio.sleep(1)
+                        continue
+                    if err.code in (33, 34):
+                        _LOGGER.warning(
+                            "Lock %s unreachable after retry (error %s) — keeping last state",
+                            self._device.name, err.code,
+                        )
+                        return
+                    raise
         except (requests.exceptions.ConnectionError, ConnectionError, OSError) as err:
             _LOGGER.warning(
                 "Gateway not responding while syncing %s: %s", self._device.name, err

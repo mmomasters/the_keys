@@ -24,6 +24,8 @@ Platform | Description
 - **Calibrate** - Calibrate the lock mechanism
 - **Sync** - Sync lock state with the cloud
 
+*Note: Calibrate / Sync presses and Lock / Unlock actions are automatically skipped while the gateway is in a `Synchronizing` phase (the gateway briefly cannot reach locks over BLE). Sync / Calibrate buttons log an INFO message and return; Lock / Unlock surface a popup asking you to retry in a minute. If the gateway gets stuck in `Synchronizing` for more than 10 minutes the integration will trigger an automatic reboot.*
+
 **Custom Services:**
 
 Service | Description

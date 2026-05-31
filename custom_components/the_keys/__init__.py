@@ -34,6 +34,12 @@ _LOGGER = logging.getLogger(__name__)
 SERVICE_CALIBRATE = "calibrate"
 SERVICE_SYNC = "sync"
 
+# Auto-reboot when the gateway has reported "Synchronizing" continuously for
+# longer than this. Benchmark on 2026-05-31 showed normal gw-phase up to ~4 min
+# and full cycles ~77s; 10 min is well above natural variance so false positives
+# are unlikely. Reboot itself is ~8s downtime (confirmed in the same benchmark).
+STUCK_SYNC_THRESHOLD = timedelta(minutes=10)
+
 
 async def _host_responds_to_ping(host: str) -> bool:
     """Return True if the gateway host answers an ICMP ping.
@@ -80,6 +86,10 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
     _gateway_reachable = True
     # Track if the gateway is currently synchronizing
     _is_synchronizing = False
+    # Timestamp the gateway first entered the current Synchronizing run. None when not
+    # syncing. Used by the stuck-sync watchdog to force-reboot a hung gateway even
+    # though the normal _is_synchronizing guard would otherwise block reboots.
+    _synchronizing_since: datetime | None = None
     # Track the last reboot time to avoid reboot loops
     _last_reboot_time = None
     # Count consecutive failed cycles; used to raise a HA Repair issue after prolonged outages
@@ -89,7 +99,7 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
 
     async def async_update_data():
         """Refresh device data - DO NOT call get_devices again!"""
-        nonlocal _gateway_reachable, _is_synchronizing, _last_reboot_time, _consecutive_failures
+        nonlocal _gateway_reachable, _is_synchronizing, _synchronizing_since, _last_reboot_time, _consecutive_failures
 
         # Check gateway reachability/status before polling individual devices.
         # We route this through the shared gateway object so the rate limiter
@@ -211,9 +221,46 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                 if "Synchronizing" in gateway_status.get("current_status", ""):
                     _LOGGER.info("Gateway is synchronizing, skipping lock updates this cycle")
                     _is_synchronizing = True
+                    if _synchronizing_since is None:
+                        _synchronizing_since = datetime.now()
+
+                    # Stuck-sync watchdog: if we've been continuously Synchronizing
+                    # for longer than the threshold, the gateway is likely hung and
+                    # the normal _is_synchronizing reboot guard would block recovery
+                    # forever. Force-reboot here, respecting the 30-min cooldown.
+                    stuck_for = datetime.now() - _synchronizing_since
+                    if stuck_for >= STUCK_SYNC_THRESHOLD:
+                        if _last_reboot_time and (datetime.now() - _last_reboot_time) < timedelta(minutes=30):
+                            _LOGGER.debug(
+                                "Gateway (%s) stuck in Synchronizing for %.1f min, "
+                                "but rebooted recently — waiting for cooldown.",
+                                gateway_host, stuck_for.total_seconds() / 60,
+                            )
+                        else:
+                            _LOGGER.warning(
+                                "Gateway (%s) has been Synchronizing for %.1f min — "
+                                "exceeds %d-min threshold, triggering reboot",
+                                gateway_host,
+                                stuck_for.total_seconds() / 60,
+                                int(STUCK_SYNC_THRESHOLD.total_seconds() / 60),
+                            )
+                            success = await hass.async_add_executor_job(
+                                api.reboot_gateway, gateway_device._gateway.id
+                            )
+                            if success:
+                                _LOGGER.info(
+                                    "Stuck-sync reboot command sent for %s", gateway_host
+                                )
+                                _last_reboot_time = datetime.now()
+                                _synchronizing_since = None
+                            else:
+                                _LOGGER.error(
+                                    "Failed to send stuck-sync reboot for %s", gateway_host
+                                )
                     return devices  # Return without updating, keep last state
 
                 _is_synchronizing = False
+                _synchronizing_since = None
 
             except GatewayUnreachableError as e:
                 # Ping succeeded but the HTTP status didn't respond → the gateway is on
