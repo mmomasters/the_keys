@@ -36,9 +36,11 @@ SERVICE_SYNC = "sync"
 
 # Auto-reboot when the gateway has reported "Synchronizing" continuously for
 # longer than this. Benchmark on 2026-05-31 showed normal gw-phase up to ~4 min
-# and full cycles ~77s; 10 min is well above natural variance so false positives
-# are unlikely. Reboot itself is ~8s downtime (confirmed in the same benchmark).
-STUCK_SYNC_THRESHOLD = timedelta(minutes=10)
+# and full cycles ~77s. Raised to 2 hours because cloud-side action failures
+# (observed in the The Keys website test log) can keep the gateway cycling in
+# Synchronizing without it being genuinely hung — a long threshold avoids
+# rebooting on a cloud outage a reboot can't fix. Reboot itself is ~8s downtime.
+STUCK_SYNC_THRESHOLD = timedelta(hours=2)
 
 
 async def _host_responds_to_ping(host: str) -> bool:
