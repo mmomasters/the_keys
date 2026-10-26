@@ -24,6 +24,16 @@ class Info:
     ip: Optional[str] = field(default=None)
 
 
+def _decode_optional_info(value: Any) -> Optional[Info]:
+    """Decode an accessory `info` blob, tolerating the API's empty-list form.
+
+    The cloud API (PHP) serializes an empty info object as `[]` instead of `{}`.
+    """
+    if not isinstance(value, dict) or not value:
+        return None
+    return Info.from_dict(value)  # type: ignore[attr-defined]
+
+
 # Accessoire
 @dataclass_json
 @dataclass
@@ -40,7 +50,7 @@ class Accessoire:
     created_at: DatabaseActionDate
     updated_at: DatabaseActionDate
     public_key: str
-    info: Info
+    info: Optional[Info] = field(metadata=config(decoder=_decode_optional_info))
     configuration: list[Any]
     cfg: Any
 
@@ -176,7 +186,7 @@ class UtilisateurSerrureAccessoireAccessoire:
 class UtilisateurSerrureAccessoire:
     id: int
     accessoire: UtilisateurSerrureAccessoireAccessoire
-    info: Optional[Info]
+    info: Optional[Info] = field(metadata=config(decoder=_decode_optional_info))
 
 
 @dataclass_json
