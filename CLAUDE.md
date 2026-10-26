@@ -35,9 +35,9 @@ Handles all communication, independent of Home Assistant:
 - **`lock.py` / `sensor.py` / `button.py`** — HA entities backed by the coordinator.
 
 ### Coordinator update flow (`__init__.py::async_update_data`)
-1. **Ping-first liveness gate**: ICMP-ping the gateway host (`_host_responds_to_ping`) before any HTTP. A non-answering host means the network/internet is down — skip HTTP entirely (avoids ~30s of executor-blocking timeouts) and **never reboot** (a cloud reboot can't reach the gateway).
-2. If the host answers ping, check reachability via `gateway.status()`.
-3. On failure, `_note_unreachable()` increments `_consecutive_failures`. After 5 failures, trigger a cloud reboot **only when the host still answers ping** (= HTTP frozen but network alive); also skipped during a 30-min cooldown or if the gateway was last seen synchronizing. A HA Repair issue is raised regardless.
+1. **Liveness gate**: before any HTTP, `_host_is_alive` tries a 3s TCP connect to the gateway's port, then falls back to ICMP ping (3 packets). A host answering neither means the network/internet is down — skip HTTP entirely (avoids ~30s of executor-blocking timeouts) and **never reboot** (a cloud reboot can't reach the gateway).
+2. If the host is alive, check reachability via `gateway.status()`.
+3. On failure, `_note_unreachable()` increments `_consecutive_failures`. After 5 failures, trigger a cloud reboot **only when the host is still alive** (= HTTP frozen but network up); also skipped during a 30-min cooldown or if the gateway was last seen synchronizing. A HA Repair issue is raised regardless.
 4. **Stuck-sync watchdog**: `_synchronizing_since` records when the gateway first entered a `Synchronizing` phase. If that state persists past `STUCK_SYNC_THRESHOLD` (2 hours — deliberately far above the ~4-min worst-case in `/tmp/gateway_bench.log` from 2026-05-31, because cloud-side action failures can keep the gateway cycling in `Synchronizing` without it being genuinely hung, and a reboot can't fix a cloud outage), force a cloud reboot even though the normal `_is_synchronizing` guard would block it. Still respects the 30-min cooldown.
 5. On success, iterate locks and call `device.retrieve_infos()` with per-lock retry logic keyed on `GatewayError.code`:
    - **400/500** (busy) → wait 6s, retry

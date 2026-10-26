@@ -43,21 +43,40 @@ SERVICE_SYNC = "sync"
 STUCK_SYNC_THRESHOLD = timedelta(hours=2)
 
 
-async def _host_responds_to_ping(host: str) -> bool:
-    """Return True if the gateway host answers an ICMP ping.
+async def _host_is_alive(host: str) -> bool:
+    """Return True if the gateway host is reachable over the network.
 
-    The gateway `_host` may carry a port (e.g. "192.168.1.50:8080"); ICMP has no
-    port, so strip it before pinging. A host that does not answer ping means the
-    remote site's network/internet is down: a cloud reboot can neither reach the
-    gateway nor help, so callers should skip rebooting in that case.
+    Tries a TCP connect to the gateway's HTTP port first: it needs no special
+    privileges and follows the same path (DNS, NAT port forward) as the real
+    requests. If that fails, falls back to ICMP ping with a few packets, so a
+    gateway whose HTTP service is frozen but whose network is up still counts as
+    alive (which is exactly when a cloud reboot helps).
+
+    A host that answers neither means the remote site's network/internet is down:
+    a cloud reboot can neither reach the gateway nor help, so callers should skip
+    rebooting in that case.
 
     If the `ping` binary is missing or not permitted (some containers), we assume
     the host is reachable so we never suppress a legitimately-needed reboot.
     """
-    hostname = host.split(":")[0].strip("[]")
+    hostname, sep, port = host.rpartition(":")
+    if not sep:
+        hostname, port = host, "80"
+    hostname = hostname.strip("[]")
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(hostname, int(port)), timeout=3
+        )
+        writer.close()
+        return True
+    except (OSError, asyncio.TimeoutError, ValueError) as err:
+        _LOGGER.debug(
+            "TCP connect to %s failed (%s); falling back to ping", host, err
+        )
+
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ping", "-c", "1", "-W", "2", hostname,
+            "ping", "-c", "3", "-W", "2", hostname,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -120,7 +139,7 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                 the gateway is network-alive but its HTTP service is frozen
                 (``can_reboot``) — triggers a cloud reboot.
 
-                ``can_reboot`` is False when the host did not answer ping: the remote
+                ``can_reboot`` is False when the host answered neither TCP nor ping: the remote
                 network/internet is down, so a cloud reboot can neither reach the gateway
                 nor help.
                 """
@@ -144,11 +163,11 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                 # failures (~5 min at the default 1-min interval).
                 _consecutive_failures += 1
                 if _consecutive_failures >= 5:
-                    # SAFETY CHECK 1: host doesn't answer ping → network/internet is down,
+                    # SAFETY CHECK 1: host answers neither TCP nor ping → network/internet is down,
                     # a cloud reboot can't reach the gateway and wouldn't help.
                     if not can_reboot:
                         _LOGGER.warning(
-                            "Gateway (%s) is unreachable and does not answer ping — the "
+                            "Gateway (%s) is unreachable and answers neither TCP nor ping — the "
                             "remote network/internet appears to be down. Skipping reboot "
                             "(a cloud reboot cannot reach the gateway).",
                             gateway_host,
@@ -168,7 +187,7 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                     else:
                         _LOGGER.warning(
                             "Gateway (%s) has been unreachable for %d consecutive cycles but "
-                            "still answers ping — triggering automatic reboot via cloud API",
+                            "is still network-alive — triggering automatic reboot via cloud API",
                             gateway_host, _consecutive_failures,
                         )
                         # Trigger reboot - use the REAL accessory ID from gateway_device._gateway.id
@@ -196,14 +215,15 @@ async def async_setup_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> Da
                         },
                     )
 
-            # Fast liveness pre-check: ping before the slow, retrying HTTP status call.
+            # Fast liveness pre-check (TCP connect, then ping) before the slow,
+            # retrying HTTP status call.
             # A non-answering host means the network/internet is down — skip HTTP entirely
             # (saves up to ~30s of executor-blocking timeouts) and never reboot.
-            if not await _host_responds_to_ping(gateway_host):
-                await _note_unreachable("no ping reply", can_reboot=False)
+            if not await _host_is_alive(gateway_host):
+                await _note_unreachable("no TCP or ping reply", can_reboot=False)
                 return devices
 
-            # Host answers ping — check the gateway's HTTP status. Routed through the
+            # Host is alive — check the gateway's HTTP status. Routed through the
             # shared gateway object so the rate limiter coordinates this request with
             # the subsequent lock-polling requests.
             try:
